@@ -1,0 +1,14 @@
+{
+  "name": "nyaypath-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "reseed": "node -e \"fetch('http://localhost:4000/api/admin/reseed',{method:'POST'}).then(r=>r.json()).then(console.log).catch(()=>console.log('Start server first, then run npm run reseed'))\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

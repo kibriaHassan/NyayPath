@@ -1,0 +1,6 @@
+data/
+*.log
+.npm-cache/
+node_modules/
+dist/
+.env.local

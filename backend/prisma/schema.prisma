@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  LAWYER
+  STAFF
+  ADMIN
+}
+
+enum CaseStatus {
+  Active
+  Pending
+  HearingScheduled
+  Disposed
+  Closed
+}
+
+enum TaskPriority {
+  Low
+  Medium
+  High
+  Urgent
+}
+
+enum TaskStatus {
+  Pending
+  InProgress
+  Completed
+}
+
+enum DocumentType {
+  CaseFile
+  Petition
+  Order
+  Judgment
+  Evidence
+  Other
+}
+
+enum NotificationType {
+  hearing
+  case
+  task
+  staff
+  system
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  name         String
+  mobile       String?
+  photo        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lawyerProfile LawyerProfile?
+  staffProfile  StaffProfile?
+  notifications Notification[]
+  uploadedDocs  CaseDocument[] @relation("UploadedBy")
+}
+
+model LawyerProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  barAssociation     String
+  enrollmentNumber   String
+  practiceAreas      String
+  court              String
+  district           String
+  chamberName        String
+  chamberAddress     String
+  bio                String
+  yearsOfExperience  Int      @default(0)
+  designation        String   @default("অ্যাডভোকেট")
+  publicProfileEnabled Boolean @default(true)
+  showEnrollment     Boolean  @default(true)
+  showMobile         Boolean  @default(true)
+  showEmail          Boolean  @default(true)
+  showChamberAddress Boolean  @default(true)
+  showBio            Boolean  @default(true)
+  verified           Boolean  @default(false)
+
+  staff            StaffProfile[]
+  ownedCases       Case[]          @relation("CaseOwner")
+  plaintiffCases   Case[]          @relation("PlaintiffLawyer")
+  defendantCases   Case[]          @relation("DefendantLawyer")
+  hearings         Hearing[]
+  tasks            Task[]
+}
+
+model StaffProfile {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lawyerId  String
+  lawyer    LawyerProfile @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  roleTitle String  @default("Legal Assistant")
+
+  viewCases         Boolean @default(true)
+  editCases         Boolean @default(false)
+  addCase           Boolean @default(false)
+  viewHearingDates  Boolean @default(true)
+  editHearingDates  Boolean @default(false)
+  manageDocuments   Boolean @default(false)
+  addNotes          Boolean @default(true)
+  manageTasks       Boolean @default(false)
+
+  assignedCases CaseStaff[]
+  hearings      Hearing[]
+  tasks         Task[]
+}
+
+model Case {
+  id                   String     @id @default(cuid())
+  caseNumber           String
+  caseTitle            String
+  caseType             String
+  courtName            String
+  courtLocation        String
+  filingDate           DateTime
+  status               CaseStatus @default(Active)
+  plaintiff            String
+  defendant            String
+  plaintiffLawyerName  String?
+  defendantLawyerName  String?
+  nextHearingDate      DateTime?
+  judgeName            String?
+  description          String     @default("")
+  importantNotes       String     @default("")
+  privateNotes         String     @default("")
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  ownerLawyerId        String
+  ownerLawyer          LawyerProfile @relation("CaseOwner", fields: [ownerLawyerId], references: [id], onDelete: Cascade)
+  plaintiffLawyerId    String?
+  plaintiffLawyer      LawyerProfile? @relation("PlaintiffLawyer", fields: [plaintiffLawyerId], references: [id])
+  defendantLawyerId    String?
+  defendantLawyer      LawyerProfile? @relation("DefendantLawyer", fields: [defendantLawyerId], references: [id])
+
+  assignedStaff CaseStaff[]
+  hearings      Hearing[]
+  documents     CaseDocument[]
+  tasks         Task[]
+
+  @@unique([caseNumber, courtLocation])
+  @@index([caseNumber])
+  @@index([ownerLawyerId])
+}
+
+model CaseStaff {
+  id      String @id @default(cuid())
+  caseId  String
+  staffId String
+  case    Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  staff   StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, staffId])
+}
+
+model Hearing {
+  id                  String   @id @default(cuid())
+  caseId              String
+  case                Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hearingDate         DateTime
+  hearingTime         String
+  court               String
+  hearingType         String
+  notes               String   @default("")
+  lawyerId            String
+  lawyer              LawyerProfile @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  responsibleStaffId  String?
+  responsibleStaff    StaffProfile? @relation(fields: [responsibleStaffId], references: [id])
+}
+
+model CaseDocument {
+  id           String       @id @default(cuid())
+  caseId       String
+  case         Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  name         String
+  type         DocumentType @default(Other)
+  fileType     String       @default("PDF")
+  fileUrl      String?
+  isPublic     Boolean      @default(false)
+  uploadDate   DateTime     @default(now())
+  uploadedById String?
+  uploadedBy   User?        @relation("UploadedBy", fields: [uploadedById], references: [id])
+}
+
+model Task {
+  id               String       @id @default(cuid())
+  title            String
+  description      String       @default("")
+  caseId           String
+  case             Case         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lawyerId         String
+  lawyer           LawyerProfile @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  assignedStaffId  String?
+  assignedStaff    StaffProfile? @relation(fields: [assignedStaffId], references: [id])
+  dueDate          DateTime
+  priority         TaskPriority @default(Medium)
+  status           TaskStatus   @default(Pending)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType @default(system)
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  createdAt DateTime @default(now())
+}
