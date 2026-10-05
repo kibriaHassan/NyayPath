@@ -1,209 +1,218 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { ChevronRight, Search } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { Badge, statusBadgeVariant } from '@/components/ui/Badge'
-import { Card, CardContent, CardHeader } from '@/components/ui/Card'
-import { getLawyerById, searchCases } from '@/data/mock'
-import { formatDate } from '@/lib/utils'
-import type { Case, Lawyer } from '@/types'
+import {
+  BdLocationFilters,
+  type BdLocationFilterValues,
+} from '@/components/search/BdLocationFilters'
+import { searchCases } from '@/data/mock'
+import { api } from '@/lib/api'
+import { COURT_TYPES } from '@/lib/bdLocations'
+import { normalizeCaseNumber } from '@/lib/caseNumber'
+import { cn } from '@/lib/utils'
+import type { Case } from '@/types'
 
-function PublicLawyerBlock({
-  title,
-  lawyerId,
-  fallbackName,
-}: {
-  title: string
-  lawyerId?: string
-  fallbackName?: string
-}) {
-  const lawyer = getLawyerById(lawyerId)
-  const available = lawyer && lawyer.publicProfileEnabled
-
-  if (!available) {
-    return (
-      <div className="rounded-xl border border-dashed border-border bg-slate-panel p-4">
-        <h4 className="font-semibold text-ink">{title}</h4>
-        {fallbackName && !lawyerId && (
-          <p className="mt-1 text-sm text-muted">{fallbackName}</p>
-        )}
-        <p className="mt-2 text-sm text-muted">
-          Lawyer information is not available on this platform.
-        </p>
-      </div>
-    )
+function locFromParams(params: URLSearchParams): BdLocationFilterValues {
+  return {
+    division: params.get('division') || '',
+    district: params.get('district') || '',
+    courtType: params.get('courtType') || '',
+    court: params.get('court') || '',
   }
-
-  return <LawyerPublicCard title={title} lawyer={lawyer} />
 }
 
-function LawyerPublicCard({ title, lawyer }: { title: string; lawyer: Lawyer }) {
-  return (
-    <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
-      <h4 className="font-semibold text-ink">{title}</h4>
-      <div className="mt-3 flex items-start gap-3">
-        <img src={lawyer.photo} alt="" className="h-14 w-14 rounded-full border border-border" />
-        <div>
-          <p className="font-display text-lg font-semibold">{lawyer.fullName}</p>
-          <p className="text-sm text-muted">{lawyer.chamberName}</p>
-          <p className="text-sm text-muted">{lawyer.practiceAreas.join(', ')}</p>
-          {lawyer.visibility.mobile && (
-            <p className="mt-1 text-sm text-ink">{lawyer.mobile}</p>
-          )}
-          {lawyer.visibility.email && (
-            <p className="text-sm text-ink">{lawyer.email}</p>
-          )}
-        </div>
-      </div>
-      <Link to={`/lawyers/${lawyer.id}`} className="mt-4 inline-block">
-        <Button variant="outline" size="sm">
-          View Profile
-        </Button>
-      </Link>
-    </div>
-  )
-}
-
-function CaseResult({ item }: { item: Case }) {
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader className="bg-slate-panel">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-teal">{item.caseNumber}</p>
-            <h3 className="font-display text-xl font-semibold">{item.caseTitle}</h3>
-          </div>
-          <Badge variant={statusBadgeVariant(item.status)}>{item.status}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div>
-          <h4 className="font-semibold">Case Information</h4>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
-            <div>
-              <dt className="text-muted">Case Type</dt>
-              <dd className="font-medium">{item.caseType}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Court</dt>
-              <dd className="font-medium">{item.courtName}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Filing Date</dt>
-              <dd className="font-medium">{formatDate(item.filingDate)}</dd>
-            </div>
-            <div className="sm:col-span-2">
-              <dt className="text-muted">Next Hearing Date</dt>
-              <dd className="font-display text-xl font-semibold text-bronze">
-                {formatDate(item.nextHearingDate)}
-              </dd>
-            </div>
-          </dl>
-        </div>
-
-        <div>
-          <h4 className="font-semibold">Parties</h4>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
-            <div>
-              <dt className="text-muted">Plaintiff / বাদী</dt>
-              <dd className="font-medium">{item.plaintiff}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Defendant / বিবাদী</dt>
-              <dd className="font-medium">{item.defendant}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div>
-          <h4 className="font-semibold">Lawyer Information</h4>
-          <div className="mt-3 grid gap-4 lg:grid-cols-2">
-            <PublicLawyerBlock
-              title="Plaintiff Lawyer"
-              lawyerId={item.plaintiffLawyerId}
-              fallbackName={item.plaintiffLawyerName}
-            />
-            <PublicLawyerBlock
-              title="Defendant Lawyer"
-              lawyerId={item.defendantLawyerId}
-              fallbackName={item.defendantLawyerName}
-            />
-          </div>
-        </div>
-
-        <p className="rounded-lg bg-sand/70 px-3 py-2 text-xs text-muted">
-          প্রাইভেট নোট, স্টাফ তথ্য, অভ্যন্তরীণ ডকুমেন্ট ও ক্লায়েন্টের গোপনীয় তথ্য পাবলিক সার্চে দেখানো হয় না।
-        </p>
-      </CardContent>
-    </Card>
-  )
+function filterSummary(loc: BdLocationFilterValues) {
+  const parts = [loc.division, loc.district].filter(Boolean)
+  if (loc.court) parts.push(loc.court)
+  else if (loc.courtType) {
+    const label = COURT_TYPES.find((t) => t.value === loc.courtType)?.label
+    if (label) parts.push(label)
+  }
+  return parts.join(' · ')
 }
 
 export default function CaseSearchPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const [caseNumber, setCaseNumber] = useState(params.get('q') || '')
-  const [court, setCourt] = useState(params.get('court') || '')
-  const [submitted, setSubmitted] = useState(Boolean(params.get('q')))
+  const [loc, setLoc] = useState<BdLocationFilterValues>(() => locFromParams(params))
+  const [formError, setFormError] = useState('')
+  const [results, setResults] = useState<Case[]>([])
+  const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(false)
 
-  const results = useMemo(() => {
-    if (!submitted || !params.get('q')) return []
-    return searchCases(params.get('q') || '', params.get('court') || undefined)
-  }, [params, submitted])
+  const hasMinParams = Boolean(params.get('q') && params.get('division') && params.get('district'))
+
+  useEffect(() => {
+    setCaseNumber(params.get('q') || '')
+    setLoc(locFromParams(params))
+  }, [params])
+
+  useEffect(() => {
+    if (!hasMinParams) {
+      setResults([])
+      setSearched(false)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const q = params.get('q') || ''
+    const division = params.get('division') || ''
+    const district = params.get('district') || ''
+    const courtType = params.get('courtType') || ''
+    const court = params.get('court') || ''
+
+    setLoading(true)
+    setSearched(true)
+
+    const qs = new URLSearchParams({ q, division, district })
+    if (courtType) qs.set('courtType', courtType)
+    if (court) qs.set('court', court)
+
+    api<{ data: Case[] }>(`/cases/search?${qs.toString()}`)
+      .then((res) => {
+        if (cancelled) return
+        const list = res.data || []
+        setResults(list)
+        try {
+          sessionStorage.setItem('nyaypath-public-cases', JSON.stringify(list))
+        } catch {
+          /* ignore */
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        const list = searchCases(q, { division, district, courtType, court })
+        setResults(list)
+        try {
+          sessionStorage.setItem('nyaypath-public-cases', JSON.stringify(list))
+        } catch {
+          /* ignore */
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [params, hasMinParams])
+
+  const activeSummary = useMemo(() => filterSummary(locFromParams(params)), [params])
 
   const onSearch = (e: FormEvent) => {
     e.preventDefault()
+    setFormError('')
+    if (!loc.division || !loc.district) {
+      setFormError('সর্বনিম্ন বিভাগ ও জেলা নির্বাচন করুন।')
+      return
+    }
+    if (!caseNumber.trim()) {
+      setFormError('মামলা নম্বর লিখুন।')
+      return
+    }
+    const num = normalizeCaseNumber(caseNumber)
+    if (!num.ok) {
+      setFormError(num.error)
+      return
+    }
     const next = new URLSearchParams()
-    if (caseNumber.trim()) next.set('q', caseNumber.trim())
-    if (court.trim()) next.set('court', court.trim())
-    setSubmitted(true)
+    next.set('q', num.value)
+    next.set('division', loc.division)
+    next.set('district', loc.district)
+    if (loc.courtType) next.set('courtType', loc.courtType)
+    if (loc.court) next.set('court', loc.court)
     navigate(`/cases/search?${next.toString()}`)
   }
 
   return (
     <div className="container-page py-6 sm:py-10">
       <div className="max-w-2xl">
-        <h1 className="font-display text-2xl font-semibold sm:text-3xl">Case Search</h1>
+        <h1 className="font-display text-2xl font-semibold sm:text-3xl">মামলা খুঁজুন</h1>
         <p className="mt-2 text-sm text-muted sm:text-base">
-          মামলা নম্বর দিয়ে পরবর্তী তারিখ ও সংশ্লিষ্ট উকিলের পাবলিক তথ্য খুঁজুন।
+          বিভাগ ও জেলা দিয়ে সার্চ করুন — সেই নম্বরে যত মামলা আছে সব লিস্টে আসবে। আদালতের ধরন/আদালত দিলে আরও নির্দিষ্ট হবে।
         </p>
       </div>
 
       <form
         onSubmit={onSearch}
-        className="mt-6 grid gap-3 rounded-xl border border-border bg-white p-4 shadow-sm sm:mt-8 sm:p-5 md:grid-cols-[1fr_1fr_auto]"
+        className="mt-6 space-y-4 rounded-2xl border border-border bg-white p-4 shadow-sm sm:mt-8 sm:p-6"
       >
-        <Input
-          label="Case Number"
-          placeholder="যেমন: 123/2026"
-          value={caseNumber}
-          onChange={(e) => setCaseNumber(e.target.value)}
-          required
-        />
-        <Input
-          label="Court / District (ঐচ্ছিক)"
-          placeholder="যেমন: ঢাকা"
-          value={court}
-          onChange={(e) => setCourt(e.target.value)}
-        />
-        <div className="flex items-end">
-          <Button type="submit" className="w-full md:w-auto">
+        <BdLocationFilters mode="search" value={loc} onChange={setLoc} />
+
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+          <Input
+            label="মামলা নম্বর"
+            placeholder="যেমন: 123/2026"
+            value={caseNumber}
+            onChange={(e) => setCaseNumber(e.target.value)}
+            required
+          />
+          <Button type="submit" className="w-full md:w-auto" disabled={!loc.division || !loc.district}>
             <Search className="h-4 w-4" />
-            Search
+            মামলা খুঁজুন
           </Button>
         </div>
+
+        {(!loc.division || !loc.district) && (
+          <p className="text-sm text-muted">সার্চ করতে বিভাগ ও জেলা দুটোই নির্বাচন করতে হবে।</p>
+        )}
+        {formError && <p className="text-sm text-danger">{formError}</p>}
       </form>
 
-      <div className="mt-8 space-y-6">
-        {submitted && results.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-white px-4 py-12 text-center text-muted">
-            কোনো মামলা পাওয়া যায়নি। উদাহরণ হিসেবে <strong>123/2026</strong> সার্চ করুন।
+      <div className="mt-8 space-y-3">
+        {searched && (
+          <div>
+            <p className="text-sm font-medium text-ink">
+              {loading ? 'খোঁজা হচ্ছে…' : `${results.length} টি মামলা পাওয়া গেছে`}
+            </p>
+            {activeSummary && (
+              <p className="mt-0.5 text-xs text-muted">
+                {params.get('q')} · {activeSummary}
+              </p>
+            )}
           </div>
         )}
-        {results.map((item) => (
-          <CaseResult key={item.id} item={item} />
-        ))}
+
+        {!loading && searched && results.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border bg-white px-4 py-12 text-center text-muted">
+            <p>এই বিভাগ/জেলায় এই নম্বরে কোনো মামলা পাওয়া যায়নি।</p>
+            <p className="mt-2 text-sm">
+              উদাহরণ: বিভাগ <strong>ঢাকা</strong>, জেলা <strong>ঢাকা</strong>, নম্বর{' '}
+              <strong>123/2026</strong>
+            </p>
+          </div>
+        )}
+
+        <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+          {results.map((item) => (
+            <li key={item.id}>
+              <Link
+                to={`/cases/${item.id}`}
+                className={cn(
+                  'flex items-center justify-between gap-3 px-4 py-3.5 transition hover:bg-mist sm:px-5',
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="font-mono text-sm font-semibold text-teal">{item.caseNumber}</p>
+                  <p className="mt-1 text-sm text-ink">
+                    <span className="text-muted">বাদী:</span> {item.plaintiff || '—'}
+                    <span className="mx-2 text-border">|</span>
+                    <span className="text-muted">বিবাদী:</span> {item.defendant || '—'}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {[item.courtName, item.district || item.courtLocation].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted" />
+              </Link>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   )

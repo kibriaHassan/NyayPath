@@ -1,34 +1,23 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/store/authStore'
-import { api } from '@/lib/api'
-import { getPublicLawyers } from '@/data/mock'
-import type { Lawyer } from '@/types'
 
 export default function StaffRegisterPage() {
   const registerStaff = useAuthStore((s) => s.registerStaff)
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [lawyers, setLawyers] = useState<Lawyer[]>([])
   const [form, setForm] = useState({
     name: '',
     email: '',
     mobile: '',
     password: '',
     confirmPassword: '',
-    lawyerId: '',
     role: 'Legal Assistant',
   })
-
-  useEffect(() => {
-    api<{ data: Lawyer[] }>('/lawyers')
-      .then((res) => setLawyers(res.data || []))
-      .catch(() => setLawyers(getPublicLawyers()))
-  }, [])
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -43,17 +32,12 @@ export default function StaffRegisterPage() {
       setError('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।')
       return
     }
-    if (!form.lawyerId) {
-      setError('যে Lawyer-এর অধীনে কাজ করবেন তাকে নির্বাচন করুন।')
-      return
-    }
     setLoading(true)
     const result = await registerStaff({
       name: form.name,
       email: form.email,
       mobile: form.mobile,
       password: form.password,
-      lawyerId: form.lawyerId,
       role: form.role,
     })
     setLoading(false)
@@ -61,7 +45,7 @@ export default function StaffRegisterPage() {
       setError(result.error || 'Registration ব্যর্থ')
       return
     }
-    navigate('/staff/dashboard')
+    navigate('/staff/profile')
   }
 
   return (
@@ -69,16 +53,15 @@ export default function StaffRegisterPage() {
       <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-6 md:p-8">
         <h1 className="font-display text-2xl font-semibold sm:text-3xl">Register as Staff</h1>
         <p className="mt-2 text-sm text-muted">
-          স্টাফ অ্যাকাউন্ট খুলে নির্দিষ্ট উকিলের অধীনে মামলা, শুনানি ও টাস্ক দেখতে/ম্যানেজ করতে পারবেন।
+          স্টাফ অ্যাকাউন্ট খুললে একটি ইউনিক ID পাবেন। সেই ID / ইমেইল / মোবাইল দিয়ে উকিল আপনাকে টিমে যোগ করতে পারবেন।
         </p>
 
         <div className="mt-4 rounded-xl bg-slate-panel p-4 text-sm text-muted">
-          <p className="font-semibold text-ink">Staff অ্যাকাউন্টে যা করতে পারবেন</p>
+          <p className="font-semibold text-ink">রেজিস্ট্রেশনের পর</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            <li>অ্যাসাইন করা মামলা দেখা</li>
-            <li>পরবর্তী শুনানির তারিখ দেখা</li>
-            <li>টাস্ক ও নোটিফিকেশন দেখা</li>
-            <li>অনুমতি থাকলে কেস নোট/আপডেট</li>
+            <li>একটি ইউনিক Staff ID পাবেন (নামের পাশে দেখাবে)</li>
+            <li>ID, ইমেইল বা নাম্বার উকিলকে দিলে তিনি আপনাকে অ্যাড করতে পারবেন</li>
+            <li>উকিল পারমিশন সেট করবেন — পরেও এডিট করতে পারবেন</li>
           </ul>
         </div>
 
@@ -110,19 +93,6 @@ export default function StaffRegisterPage() {
             value={form.confirmPassword}
             onChange={(e) => set('confirmPassword', e.target.value)}
           />
-          <div className="sm:col-span-2">
-            <Select
-              label="Lawyer (যার অধীনে কাজ করবেন)"
-              required
-              value={form.lawyerId}
-              onChange={(e) => set('lawyerId', e.target.value)}
-              placeholder="উকিল নির্বাচন করুন"
-              options={lawyers.map((l) => ({
-                value: l.id,
-                label: `${l.fullName} — ${l.chamberName || l.district}`,
-              }))}
-            />
-          </div>
           {error && <p className="sm:col-span-2 text-sm text-danger">{error}</p>}
           <div className="sm:col-span-2">
             <Button type="submit" fullWidth size="lg" disabled={loading}>

@@ -3,7 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import type { UserRole } from '@/types'
 import { PublicFooter } from './PublicFooter'
 import { PublicHeader } from './PublicHeader'
-import { DashboardLayout, lawyerNav, staffNav } from './DashboardLayout'
+import { DashboardLayout, adminNav, lawyerNav, staffNav } from './DashboardLayout'
 
 export function PublicLayout() {
   return (
@@ -22,10 +22,12 @@ export function ProtectedRoute({ roles }: { roles: UserRole[] }) {
   const location = useLocation()
 
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    const loginTo = roles.includes('ADMIN') ? '/admin' : '/login'
+    return <Navigate to={loginTo} replace state={{ from: location.pathname }} />
   }
 
   if (!roles.includes(user.role)) {
+    if (user.role === 'ADMIN') return <Navigate to="/admin/dashboard" replace />
     if (user.role === 'LAWYER') return <Navigate to="/lawyer/dashboard" replace />
     if (user.role === 'STAFF') return <Navigate to="/staff/dashboard" replace />
     return <Navigate to="/" replace />
@@ -40,4 +42,8 @@ export function LawyerLayout() {
 
 export function StaffLayout() {
   return <DashboardLayout nav={staffNav} basePath="/staff" title="Staff Portal" />
+}
+
+export function AdminLayout() {
+  return <DashboardLayout nav={adminNav} basePath="/admin" title="Admin Control Panel" />
 }

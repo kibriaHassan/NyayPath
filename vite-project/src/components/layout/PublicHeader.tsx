@@ -19,7 +19,13 @@ export function PublicHeader() {
   const navigate = useNavigate()
 
   const dashboardPath =
-    user?.role === 'LAWYER' ? '/lawyer/dashboard' : user?.role === 'STAFF' ? '/staff/dashboard' : null
+    user?.role === 'ADMIN'
+      ? '/admin/dashboard'
+      : user?.role === 'LAWYER'
+        ? '/lawyer/dashboard'
+        : user?.role === 'STAFF'
+          ? '/staff/dashboard'
+          : null
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-white/90 backdrop-blur-md">

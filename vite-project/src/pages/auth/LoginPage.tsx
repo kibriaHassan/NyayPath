@@ -6,6 +6,8 @@ import { useAuthStore } from '@/store/authStore'
 import { DEMO_ACCOUNTS } from '@/data/mock'
 import { cn } from '@/lib/utils'
 
+type RoleTab = 'lawyer' | 'staff'
+
 export default function LoginPage() {
   const login = useAuthStore((s) => s.login)
   const navigate = useNavigate()
@@ -13,8 +15,8 @@ export default function LoginPage() {
   const [params] = useSearchParams()
   const from = (location.state as { from?: string } | null)?.from
 
-  const initialRole = params.get('role') === 'staff' ? 'staff' : 'lawyer'
-  const [roleTab, setRoleTab] = useState<'lawyer' | 'staff'>(initialRole)
+  const initialRole: RoleTab = params.get('role') === 'staff' ? 'staff' : 'lawyer'
+  const [roleTab, setRoleTab] = useState<RoleTab>(initialRole)
   const [email, setEmail] = useState(
     initialRole === 'staff' ? DEMO_ACCOUNTS.staff.email : DEMO_ACCOUNTS.lawyer.email,
   )
@@ -25,7 +27,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const switchTab = (tab: 'lawyer' | 'staff') => {
+  const switchTab = (tab: RoleTab) => {
     setRoleTab(tab)
     setError('')
     if (tab === 'staff') {
@@ -48,6 +50,10 @@ export default function LoginPage() {
       return
     }
     const user = useAuthStore.getState().user
+    if (user?.role === 'ADMIN') {
+      navigate('/admin/dashboard')
+      return
+    }
     if (from) navigate(from)
     else if (user?.role === 'LAWYER') navigate('/lawyer/dashboard')
     else if (user?.role === 'STAFF') navigate('/staff/dashboard')
@@ -128,9 +134,6 @@ export default function LoginPage() {
               {DEMO_ACCOUNTS.staff.email} / {DEMO_ACCOUNTS.staff.password}
             </p>
           )}
-          <p className="mt-2 text-[11px] leading-relaxed">
-            Staff লগইন করলে দেখবেন: Assigned Cases, Upcoming Hearings, Tasks, Documents, Notifications।
-          </p>
         </div>
 
         <div className="mt-6 space-y-2 text-center text-sm text-muted">

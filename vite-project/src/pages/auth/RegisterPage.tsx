@@ -46,7 +46,9 @@ export default function RegisterPage() {
       password: form.password,
       barAssociation: form.barAssociation,
       enrollmentNumber: form.enrollmentNumber,
-      practiceArea: form.practiceArea,
+      practiceArea: form.practiceArea === 'উভয়' ? 'সিভিল' : form.practiceArea,
+      practiceType:
+        form.practiceArea === 'ফৌজদারি' ? 'criminal' : form.practiceArea === 'উভয়' ? 'both' : 'civil',
       court: form.court,
       district: form.court,
       chamberName: form.chamberName,
@@ -54,6 +56,7 @@ export default function RegisterPage() {
       bio: form.bio,
       yearsOfExperience: Number(form.yearsOfExperience) || 0,
       photo: form.photo || undefined,
+      publicProfileEnabled: true,
     })
     if (!result.ok) {
       setError(result.error || 'Registration ব্যর্থ')
@@ -80,12 +83,15 @@ export default function RegisterPage() {
           <Input label="Bar Council / Bar Association" required value={form.barAssociation} onChange={(e) => set('barAssociation', e.target.value)} />
           <Input label="Enrollment Number" required value={form.enrollmentNumber} onChange={(e) => set('enrollmentNumber', e.target.value)} />
           <Select
-            label="Practice Area"
+            label="মামলার ধরন"
             value={form.practiceArea}
             onChange={(e) => set('practiceArea', e.target.value)}
-            options={['সিভিল', 'ফৌজদারি', 'পারিবারিক', 'কর্পোরেট', 'জমি জমা'].map((v) => ({ value: v, label: v }))}
-          />
-          <Input label="Court / District" required value={form.court} onChange={(e) => set('court', e.target.value)} />
+            options={[
+              { value: 'সিভিল', label: 'শুধু সিভিল' },
+              { value: 'ফৌজদারি', label: 'শুধু ফৌজদারি' },
+              { value: 'উভয়', label: 'উভয়' },
+            ]}
+          />          <Input label="Court / District" required value={form.court} onChange={(e) => set('court', e.target.value)} />
           <Input label="Chamber Name" value={form.chamberName} onChange={(e) => set('chamberName', e.target.value)} />
           <Input label="Profile Photo URL (ঐচ্ছিক)" placeholder="https://..." value={form.photo} onChange={(e) => set('photo', e.target.value)} />
           <div className="sm:col-span-2">

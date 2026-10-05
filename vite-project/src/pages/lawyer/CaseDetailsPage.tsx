@@ -1,26 +1,116 @@
-import { Link, useParams } from 'react-router-dom'
-import { documents, getCaseById, getLawyerById, getStaffById, hearings, tasks } from '@/data/mock'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  documents as mockDocuments,
+  getCaseById,
+  getLawyerById,
+  getStaffById,
+  hearings as mockHearings,
+  tasks as mockTasks,
+  staffMembers,
+} from '@/data/mock'
+import { api, ApiError } from '@/lib/api'
 import { Badge, statusBadgeVariant } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import type { Case, CaseDocument, Hearing, Staff, Task } from '@/types'
 
 export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: string }) {
   const { id } = useParams()
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
-  const caseItem = getCaseById(id)
+  const [caseItem, setCaseItem] = useState<Case | null>(() => getCaseById(id) || null)
+  const [staffList, setStaffList] = useState<Staff[]>(() =>
+    staffMembers.filter((s) => s.lawyerId === user?.id || (id && getCaseById(id)?.assignedStaffIds?.includes(s.id))),
+  )
+  const [caseDocs, setCaseDocs] = useState<CaseDocument[]>(() =>
+    mockDocuments.filter((d) => d.caseId === id),
+  )
+  const [caseHearings, setCaseHearings] = useState<Hearing[]>(() =>
+    mockHearings.filter((h) => h.caseId === id),
+  )
+  const [caseTasks, setCaseTasks] = useState<Task[]>(() => mockTasks.filter((t) => t.caseId === id))
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [actionMsg, setActionMsg] = useState('')
+
   const isLawyer = user?.role === 'LAWYER'
   const canSeePrivate = isLawyer || user?.role === 'STAFF'
+  const iAmOnCase =
+    !!user &&
+    (caseItem?.plaintiffLawyerId === user.id || caseItem?.defendantLawyerId === user.id)
 
-  if (!caseItem) {
-    return <p className="text-muted">মামলা পাওয়া যায়নি।</p>
+  useEffect(() => {
+    if (!id) {
+      setLoading(false)
+      setError('মামলা পাওয়া যায়নি।')
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError('')
+
+    Promise.all([
+      api<{ data: Case }>(`/cases/${id}`),
+      api<{ data: Staff[] }>('/staff').catch(() => ({ data: staffMembers })),
+      api<{ data: Hearing[] }>('/hearings').catch(() => ({ data: mockHearings })),
+      api<{ data: CaseDocument[] }>('/documents').catch(() => ({ data: mockDocuments })),
+      api<{ data: Task[] }>('/tasks').catch(() => ({ data: mockTasks })),
+    ])
+      .then(([caseRes, staffRes, hearingRes, docRes, taskRes]) => {
+        if (cancelled) return
+        setCaseItem(caseRes.data)
+        setStaffList(staffRes.data || [])
+        setCaseHearings((hearingRes.data || []).filter((h) => h.caseId === id))
+        setCaseDocs((docRes.data || []).filter((d) => d.caseId === id))
+        setCaseTasks((taskRes.data || []).filter((t) => t.caseId === id))
+      })
+      .catch(() => {
+        if (cancelled) return
+        const local = getCaseById(id)
+        if (local) {
+          setCaseItem(local)
+          setStaffList(staffMembers)
+          setCaseHearings(mockHearings.filter((h) => h.caseId === id))
+          setCaseDocs(mockDocuments.filter((d) => d.caseId === id))
+          setCaseTasks(mockTasks.filter((t) => t.caseId === id))
+        } else {
+          setCaseItem(null)
+          setError('মামলা পাওয়া যায়নি।')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, user?.id])
+
+  if (loading) {
+    return <p className="text-muted">মামলা লোড হচ্ছে…</p>
   }
 
-  const caseDocs = documents.filter((d) => d.caseId === caseItem.id)
-  const caseHearings = hearings.filter((h) => h.caseId === caseItem.id)
-  const caseTasks = tasks.filter((t) => t.caseId === caseItem.id)
+  if (!caseItem) {
+    return (
+      <div className="space-y-3">
+        <p className="text-muted">{error || 'মামলা পাওয়া যায়নি।'}</p>
+        <Link to={`${basePath}/cases`} className="text-sm font-semibold text-teal hover:underline">
+          মামলার তালিকায় ফিরে যান
+        </Link>
+      </div>
+    )
+  }
+
+  const assignedIds = caseItem.assignedStaffIds || []
   const owner = getLawyerById(caseItem.ownerLawyerId)
+
+  const resolveStaff = (sid: string) =>
+    staffList.find((s) => s.id === sid) || getStaffById(sid)
 
   return (
     <div className="space-y-6">
@@ -34,11 +124,45 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
           </div>
         </div>
         {isLawyer && (
-          <Link to={`${basePath}/cases/${caseItem.id}/edit`}>
-            <Button variant="outline">Edit Case</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link to={`${basePath}/cases/${caseItem.id}/edit`}>
+              <Button variant="outline">Edit Case</Button>
+            </Link>
+            {iAmOnCase && (
+              <Button
+                variant="outline"
+                disabled={withdrawing}
+                onClick={async () => {
+                  if (
+                    !confirm(
+                      'আপনি এই মামলা পরিচালনা বন্ধ করতে চান? আপনার নাম এই পক্ষ থেকে কেটে যাবে — অন্য উকিল পরে যোগ করতে পারবেন।',
+                    )
+                  ) {
+                    return
+                  }
+                  setWithdrawing(true)
+                  setActionMsg('')
+                  try {
+                    const res = await api<{ data: Case; message?: string }>(
+                      `/cases/${caseItem.id}/withdraw`,
+                      { method: 'POST', body: {} },
+                    )
+                    setCaseItem(res.data)
+                    setActionMsg(res.message || 'আপনি মামলা থেকে সরে গেছেন।')
+                    setTimeout(() => navigate(`${basePath}/cases`), 1000)
+                  } catch (err) {
+                    setActionMsg(err instanceof ApiError ? err.message : 'কাজটি ব্যর্থ হয়েছে।')
+                  }
+                  setWithdrawing(false)
+                }}
+              >
+                {withdrawing ? 'সরানো হচ্ছে…' : 'পরিচালনা বন্ধ / Closed'}
+              </Button>
+            )}
+          </div>
         )}
       </div>
+      {actionMsg && <p className="text-sm text-teal">{actionMsg}</p>}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -52,12 +176,22 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                 ['Location', caseItem.courtLocation],
                 ['Filing Date', formatDate(caseItem.filingDate)],
                 ['Next Hearing', formatDate(caseItem.nextHearingDate)],
-                ['Judge', caseItem.judgeName],
-                ['Owner Lawyer', owner?.fullName || '—'],
-                ['Plaintiff', caseItem.plaintiff],
-                ['Defendant', caseItem.defendant],
-                ['Plaintiff Lawyer', caseItem.plaintiffLawyerName || '—'],
-                ['Defendant Lawyer', caseItem.defendantLawyerName || '—'],
+                ['Judge', caseItem.judgeName || '—'],
+                ['Owner Lawyer', owner?.fullName || user?.name || '—'],
+                ['বাদী', caseItem.plaintiff],
+                ['বিবাদী', caseItem.defendant],
+                [
+                  'বাদীপক্ষের উকিল',
+                  caseItem.plaintiffLawyerName ||
+                    (caseItem.plaintiffLawyerId ? getLawyerById(caseItem.plaintiffLawyerId)?.fullName : '') ||
+                    '— (এখনো নেই)',
+                ],
+                [
+                  'বিবাদীপক্ষের উকিল',
+                  caseItem.defendantLawyerName ||
+                    (caseItem.defendantLawyerId ? getLawyerById(caseItem.defendantLawyerId)?.fullName : '') ||
+                    '— (এখনো নেই)',
+                ],
               ].map(([k, v]) => (
                 <div key={k as string}>
                   <dt className="text-muted">{k}</dt>
@@ -67,7 +201,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
             </dl>
             <div className="mt-4">
               <p className="text-sm text-muted">Description</p>
-              <p className="mt-1 text-sm leading-relaxed">{caseItem.description}</p>
+              <p className="mt-1 text-sm leading-relaxed">{caseItem.description || '—'}</p>
             </div>
             <div className="mt-4">
               <p className="text-sm text-muted">Important Notes</p>
@@ -76,7 +210,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
             {canSeePrivate && (
               <div className="mt-4 rounded-lg border border-danger/20 bg-danger/5 p-3">
                 <p className="text-xs font-semibold uppercase text-danger">Private Notes (authorized only)</p>
-                <p className="mt-1 text-sm">{caseItem.privateNotes}</p>
+                <p className="mt-1 text-sm">{caseItem.privateNotes || '—'}</p>
               </div>
             )}
           </CardContent>
@@ -88,17 +222,28 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
               <h2 className="font-semibold">Assigned Staff</h2>
             </CardHeader>
             <CardContent className="space-y-3">
-              {caseItem.assignedStaffIds.length === 0 && (
-                <p className="text-sm text-muted">কোনো স্টাফ অ্যাসাইন নেই।</p>
+              {assignedIds.length === 0 && (
+                <p className="text-sm text-muted">স্টাফ অ্যাসাইন নেই — উকিল নিজে পরিচালনা করছেন।</p>
               )}
-              {caseItem.assignedStaffIds.map((sid) => {
-                const s = getStaffById(sid)
-                if (!s) return null
+              {assignedIds.map((sid) => {
+                const s = resolveStaff(sid)
+                if (!s) {
+                  return (
+                    <p key={sid} className="text-sm text-muted">
+                      Staff ID: {sid}
+                    </p>
+                  )
+                }
                 return (
                   <div key={sid} className="flex items-center gap-3">
                     <img src={s.photo} alt="" className="h-9 w-9 rounded-full" />
                     <div>
-                      <p className="text-sm font-semibold">{s.name}</p>
+                      <p className="text-sm font-semibold">
+                        {s.name}{' '}
+                        {s.staffCode && (
+                          <span className="font-mono text-xs text-teal">{s.staffCode}</span>
+                        )}
+                      </p>
                       <p className="text-xs text-muted">{s.role}</p>
                     </div>
                   </div>
@@ -112,9 +257,20 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
               <h2 className="font-semibold">Hearings</h2>
             </CardHeader>
             <CardContent className="space-y-2">
+              {caseHearings.length === 0 && caseItem.nextHearingDate && (
+                <div className="rounded-lg bg-slate-panel p-3 text-sm">
+                  <p className="font-semibold">{formatDate(caseItem.nextHearingDate)}</p>
+                  <p className="text-muted">পরবর্তী শুনানি</p>
+                </div>
+              )}
+              {caseHearings.length === 0 && !caseItem.nextHearingDate && (
+                <p className="text-sm text-muted">কোনো শুনানি নেই।</p>
+              )}
               {caseHearings.map((h) => (
                 <div key={h.id} className="rounded-lg bg-slate-panel p-3 text-sm">
-                  <p className="font-semibold">{formatDate(h.hearingDate)} · {h.hearingTime}</p>
+                  <p className="font-semibold">
+                    {formatDate(h.hearingDate)} · {h.hearingTime}
+                  </p>
                   <p className="text-muted">{h.hearingType}</p>
                 </div>
               ))}
@@ -131,7 +287,10 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
           <CardContent className="space-y-2">
             {caseDocs.length === 0 && <p className="text-sm text-muted">কোনো ডকুমেন্ট নেই।</p>}
             {caseDocs.map((d) => (
-              <div key={d.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+              <div
+                key={d.id}
+                className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
+              >
                 <div>
                   <p className="font-medium">{d.name}</p>
                   <p className="text-xs text-muted">

@@ -39,6 +39,8 @@ export interface PublicVisibility {
   bio: boolean
 }
 
+export type PracticeType = 'civil' | 'criminal' | 'both'
+
 export interface Lawyer {
   id: string
   fullName: string
@@ -48,10 +50,15 @@ export interface Lawyer {
   barAssociation: string
   enrollmentNumber: string
   practiceAreas: string[]
+  /** সিভিল / ফৌজদারি / উভয় */
+  practiceType?: PracticeType
   court: string
+  division?: string
   district: string
   chamberName: string
   chamberAddress: string
+  /** এলাকা / লোকেশন ট্যাগ — যেমন গুলশান, কোর্ট এলাকা */
+  chamberLocation?: string
   bio: string
   photo: string
   yearsOfExperience: number
@@ -63,7 +70,10 @@ export interface Lawyer {
 
 export interface Staff {
   id: string
-  lawyerId: string
+  /** Human-friendly unique ID shown next to name, e.g. NP-A1B2C3 */
+  staffCode: string
+  /** Empty until a lawyer links this staff account */
+  lawyerId?: string
   name: string
   email: string
   mobile: string
@@ -80,6 +90,9 @@ export interface Case {
   caseType: string
   courtName: string
   courtLocation: string
+  /** পাবলিক সার্চ ফিল্টারের জন্য */
+  division?: string
+  district?: string
   filingDate: string
   status: CaseStatus
   plaintiff: string
@@ -88,7 +101,12 @@ export interface Case {
   defendantLawyerId?: string
   plaintiffLawyerName?: string
   defendantLawyerName?: string
+  /** উকিল কোন পক্ষে — এন্ট্রির সময় */
+  representingSide?: 'plaintiff' | 'defendant'
   nextHearingDate: string
+  /** What will happen on the next hearing date */
+  nextHearingPurpose?: string
+  lastHearingDate?: string
   judgeName: string
   description: string
   assignedStaffIds: string[]
@@ -154,4 +172,8 @@ export interface AuthUser {
   role: UserRole
   lawyerId?: string
   photo?: string
+  /** Staff unique public ID */
+  staffCode?: string
+  /** Staff access — false হলে পোর্টাল লক */
+  active?: boolean
 }

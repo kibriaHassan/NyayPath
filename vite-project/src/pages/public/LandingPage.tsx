@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   CalendarDays,
@@ -13,7 +13,24 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { LawyerCard } from '@/components/lawyers/LawyerCard'
-import { getPublicLawyers } from '@/data/mock'
+import {
+  BdLocationFilters,
+  type BdLocationFilterValues,
+} from '@/components/search/BdLocationFilters'
+import { filterLawyersByPracticeType } from '@/data/mock'
+import { findDivisionByDistrict, matchesCourtType } from '@/lib/bdLocations'
+import { loadPublicLawyers } from '@/lib/publicLawyers'
+import { normalizeCaseNumber } from '@/lib/caseNumber'
+import { PRACTICE_TYPE_OPTIONS, type PracticeType } from '@/lib/practiceTypes'
+import { cn } from '@/lib/utils'
+import type { Lawyer } from '@/types'
+
+const emptyLocation: BdLocationFilterValues = {
+  division: '',
+  district: '',
+  courtType: '',
+  court: '',
+}
 
 const features = [
   {
@@ -49,28 +66,83 @@ const features = [
 ]
 
 const steps = [
-  { n: '১', title: 'মামলা নম্বর দিয়ে Search করুন', desc: 'কেস নম্বর ও ঐচ্ছিক আদালত/লোকেশন দিন।' },
+  { n: '১', title: 'বিভাগ · জেলা · মামলা নম্বর দিন', desc: 'আদালতের ধরন/আদালত দিলে আরও নির্দিষ্ট ফলাফল পাবেন।' },
   { n: '২', title: 'মামলার তথ্য দেখুন', desc: 'স্ট্যাটাস, পক্ষ ও মৌলিক তথ্য দেখুন।' },
   { n: '৩', title: 'পরবর্তী তারিখ ও Lawyer দেখুন', desc: 'নেক্সট হেয়ারিং এবং সংশ্লিষ্ট উকিলের প্রোফাইল।' },
 ]
 
+function matchesLawyerLocation(lawyer: Lawyer, loc: BdLocationFilterValues) {
+  const lawyerDivision = lawyer.division || findDivisionByDistrict(lawyer.district || '')
+  if (loc.division && lawyerDivision !== loc.division) return false
+  if (loc.district && lawyer.district !== loc.district) return false
+  if (loc.court && lawyer.court !== loc.court) return false
+  if (loc.courtType && !loc.court && !matchesCourtType(lawyer.court, loc.courtType)) return false
+  return true
+}
+
 export default function LandingPage() {
   const navigate = useNavigate()
   const [caseNumber, setCaseNumber] = useState('')
-  const [court, setCourt] = useState('')
-  const previewLawyers = getPublicLawyers().slice(0, 3)
+  const [caseLoc, setCaseLoc] = useState<BdLocationFilterValues>(emptyLocation)
+  const [caseSearchError, setCaseSearchError] = useState('')
+  const [practiceFilter, setPracticeFilter] = useState<PracticeType | ''>('')
+  const [lawyerName, setLawyerName] = useState('')
+  const [lawyerLoc, setLawyerLoc] = useState<BdLocationFilterValues>(emptyLocation)
+  const [publicLawyers, setPublicLawyers] = useState<Lawyer[]>([])
+  const [loadingLawyers, setLoadingLawyers] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingLawyers(true)
+    loadPublicLawyers()
+      .then((list) => {
+        if (!cancelled) setPublicLawyers(list)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLawyers(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filteredLawyers = useMemo(() => {
+    let list = filterLawyersByPracticeType(publicLawyers, practiceFilter)
+    list = list.filter((l) => matchesLawyerLocation(l, lawyerLoc))
+    if (lawyerName.trim()) {
+      const q = lawyerName.trim().toLowerCase()
+      list = list.filter((l) => l.fullName.toLowerCase().includes(q))
+    }
+    return list
+  }, [publicLawyers, practiceFilter, lawyerName, lawyerLoc])
 
   const onSearch = (e: FormEvent) => {
     e.preventDefault()
+    setCaseSearchError('')
+    if (!caseLoc.division || !caseLoc.district) {
+      setCaseSearchError('সর্বনিম্ন বিভাগ ও জেলা নির্বাচন করুন।')
+      return
+    }
+    if (!caseNumber.trim()) {
+      setCaseSearchError('মামলা নম্বর লিখুন।')
+      return
+    }
+    const num = normalizeCaseNumber(caseNumber)
+    if (!num.ok) {
+      setCaseSearchError(num.error)
+      return
+    }
     const params = new URLSearchParams()
-    if (caseNumber.trim()) params.set('q', caseNumber.trim())
-    if (court.trim()) params.set('court', court.trim())
+    params.set('q', num.value)
+    params.set('division', caseLoc.division)
+    params.set('district', caseLoc.district)
+    if (caseLoc.courtType) params.set('courtType', caseLoc.courtType)
+    if (caseLoc.court) params.set('court', caseLoc.court)
     navigate(`/cases/search?${params.toString()}`)
   }
 
   return (
     <div>
-      {/* Hero */}
       <section className="relative overflow-hidden border-b border-border">
         <div className="absolute inset-0 bg-[linear-gradient(135deg,#0c2e33_0%,#164850_45%,#1a6b75_100%)]" />
         <div
@@ -80,7 +152,7 @@ export default function LandingPage() {
               'radial-gradient(circle at 20% 20%, rgba(196,146,90,0.35), transparent 35%), radial-gradient(circle at 80% 10%, rgba(255,255,255,0.12), transparent 25%)',
           }}
         />
-        <div className="container-page relative grid gap-8 py-10 sm:gap-10 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:py-24">
+        <div className="container-page relative grid gap-8 py-10 sm:gap-10 sm:py-16 lg:grid-cols-[1fr_1.15fr] lg:items-center lg:py-20">
           <div className="text-sand">
             <p className="font-display text-3xl font-semibold leading-tight text-balance sm:text-5xl lg:text-[3.25rem]">
               NyayPath
@@ -112,24 +184,32 @@ export default function LandingPage() {
           >
             <div className="flex items-center gap-2 text-ink">
               <Search className="h-5 w-5 text-teal" />
-              <h2 className="font-display text-xl font-semibold">Search Case</h2>
+              <h2 className="font-display text-xl font-semibold">মামলা খুঁজুন</h2>
             </div>
-            <p className="mt-1 text-sm text-muted">উদাহরণ: 123/2026</p>
-            <div className="mt-5 space-y-3">
+            <p className="mt-1 text-sm text-muted">
+              বিভাগ ও জেলা দিয়ে সার্চ — সেই নম্বরে যত মামলা আছে সব দেখাবে
+            </p>
+            <div className="mt-5 space-y-4">
+              <BdLocationFilters mode="search" value={caseLoc} onChange={setCaseLoc} tone="hero" />
               <Input
                 label="মামলা নম্বর"
-                placeholder="মামলা নম্বর লিখুন: 123/2026"
+                placeholder="যেমন: 1/2026"
                 value={caseNumber}
                 onChange={(e) => setCaseNumber(e.target.value)}
+                onBlur={() => {
+                  const n = normalizeCaseNumber(caseNumber)
+                  if (n.ok) setCaseNumber(n.value)
+                }}
                 required
               />
-              <Input
-                label="Court / Location (ঐচ্ছিক)"
-                placeholder="যেমন: ঢাকা"
-                value={court}
-                onChange={(e) => setCourt(e.target.value)}
-              />
-              <Button type="submit" fullWidth size="lg">
+              <p className="text-xs text-muted">ফরম্যাট: 1/2026 (বছর ৪ সংখ্যা) — 1/26 নয়</p>
+              {caseSearchError && <p className="text-sm text-danger">{caseSearchError}</p>}
+              <Button
+                type="submit"
+                fullWidth
+                size="lg"
+                disabled={!caseLoc.division || !caseLoc.district}
+              >
                 মামলা খুঁজুন
               </Button>
             </div>
@@ -137,7 +217,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Quick actions */}
       <section className="container-page py-8 sm:py-10">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
@@ -158,13 +237,81 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Why */}
+      <section className="border-y border-border bg-white/70 py-10 sm:py-16">
+        <div className="container-page">
+          <div>
+            <h2 className="font-display text-2xl font-semibold sm:text-3xl">উকিল খুঁজুন</h2>
+            <p className="mt-2 text-sm text-muted sm:text-base">
+              বিভাগ ও জেলা বাছুন, তারপর মামলার ধরন — সব উকিল / সিভিল / ফৌজদারি / উভয়
+            </p>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5">
+            <BdLocationFilters value={lawyerLoc} onChange={setLawyerLoc} />
+
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-medium text-ink">মামলার ধরন</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPracticeFilter('')}
+                  className={cn(
+                    'rounded-lg px-3.5 py-2 text-sm font-semibold transition',
+                    practiceFilter === ''
+                      ? 'bg-teal text-white shadow-sm'
+                      : 'border border-border bg-slate-panel/60 text-ink hover:border-teal/40',
+                  )}
+                >
+                  সব উকিল
+                </button>
+                {PRACTICE_TYPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPracticeFilter(opt.value)}
+                    className={cn(
+                      'rounded-lg px-3.5 py-2 text-sm font-semibold transition',
+                      practiceFilter === opt.value
+                        ? 'bg-teal text-white shadow-sm'
+                        : 'border border-border bg-slate-panel/60 text-ink hover:border-teal/40',
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 max-w-md">
+              <Input
+                label="নাম দিয়ে খুঁজুন (ঐচ্ছিক)"
+                value={lawyerName}
+                onChange={(e) => setLawyerName(e.target.value)}
+                placeholder="উকিলের নাম"
+              />
+            </div>
+          </div>
+
+          <p className="mt-5 text-sm text-muted">
+            {loadingLawyers ? 'লোড হচ্ছে…' : `${filteredLawyers.length} জন উকিল`}
+          </p>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {!loadingLawyers && filteredLawyers.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border bg-white px-4 py-10 text-center text-sm text-muted md:col-span-2 lg:col-span-3">
+                এই ফিল্টারে কোনো উকিল পাওয়া যায়নি।
+              </p>
+            ) : (
+              filteredLawyers.map((lawyer) => <LawyerCard key={lawyer.id} lawyer={lawyer} />)
+            )}
+          </div>
+        </div>
+      </section>
+
       <section className="container-page py-8 pb-12 sm:pb-16">
         <div className="max-w-2xl">
           <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Why Use This Platform</h2>
-          <p className="mt-2 text-muted">
-            সাধারণ মানুষ থেকে উকিল ও স্টাফ — সবার জন্য স্বচ্ছ ও সহজ টুল।
-          </p>
+          <p className="mt-2 text-muted">সাধারণ মানুষ থেকে উকিল ও স্টাফ — সবার জন্য স্বচ্ছ ও সহজ টুল।</p>
         </div>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
@@ -179,27 +326,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Directory preview */}
-      <section className="border-y border-border bg-white/70 py-10 sm:py-16">
-        <div className="container-page">
-          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-            <div>
-              <h2 className="font-display text-2xl font-semibold sm:text-3xl">Lawyer Directory</h2>
-              <p className="mt-2 text-sm text-muted sm:text-base">রেজিস্টার্ড ও পাবলিক প্রোফাইল এনাবল্ড উকিলগণ</p>
-            </div>
-            <Link to="/lawyers" className="w-full sm:w-auto">
-              <Button variant="outline" className="w-full sm:w-auto">সব উকিল দেখুন</Button>
-            </Link>
-          </div>
-          <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {previewLawyers.map((lawyer) => (
-              <LawyerCard key={lawyer.id} lawyer={lawyer} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How it works */}
       <section className="container-page py-10 sm:py-16">
         <h2 className="font-display text-2xl font-semibold sm:text-3xl">How It Works</h2>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -214,7 +340,8 @@ export default function LandingPage() {
         <div className="mt-8 flex items-start gap-3 rounded-xl border border-bronze/30 bg-sand/80 p-4 text-sm text-ink">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-bronze" />
           <p>
-            এই প্ল্যাটফর্মে প্রদর্শিত তথ্য শুধুমাত্র তথ্যগত উদ্দেশ্যে ব্যবহারের জন্য। মামলার তথ্যের চূড়ান্ত সত্যতা সংশ্লিষ্ট আদালত/কর্তৃপক্ষের রেকর্ড দ্বারা যাচাই করতে হবে।
+            এই প্ল্যাটফর্মে প্রদর্শিত তথ্য শুধুমাত্র তথ্যগত উদ্দেশ্যে ব্যবহারের জন্য। মামলার তথ্যের চূড়ান্ত সত্যতা
+            সংশ্লিষ্ট আদালত/কর্তৃপক্ষের রেকর্ড দ্বারা যাচাই করতে হবে।
           </p>
         </div>
       </section>

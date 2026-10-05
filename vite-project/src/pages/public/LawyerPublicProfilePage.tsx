@@ -1,12 +1,49 @@
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { MapPin, Briefcase, Scale, Mail, Phone, Building2 } from 'lucide-react'
-import { getLawyerById } from '@/data/mock'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { loadPublicLawyerById } from '@/lib/publicLawyers'
+import {
+  buildMapQuery,
+  googleMapsEmbedUrl,
+  googleMapsOpenUrl,
+  inferPracticeType,
+  practiceTypeLabel,
+} from '@/lib/practiceTypes'
+import type { Lawyer } from '@/types'
 
 export default function LawyerPublicProfilePage() {
   const { id } = useParams()
-  const lawyer = getLawyerById(id)
+  const [lawyer, setLawyer] = useState<Lawyer | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!id) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    loadPublicLawyerById(id)
+      .then((data) => {
+        if (!cancelled) setLawyer(data)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  if (loading) {
+    return (
+      <div className="container-page py-16 text-center text-muted">
+        প্রোফাইল লোড হচ্ছে…
+      </div>
+    )
+  }
 
   if (!lawyer || !lawyer.publicProfileEnabled) {
     return (
@@ -19,6 +56,15 @@ export default function LawyerPublicProfilePage() {
       </div>
     )
   }
+
+  const practiceType = lawyer.practiceType || inferPracticeType(lawyer.practiceAreas)
+  const mapQuery = buildMapQuery({
+    chamberAddress: lawyer.chamberAddress,
+    chamberLocation: lawyer.chamberLocation,
+    district: lawyer.district,
+    division: lawyer.division,
+  })
+  const mapEmbed = lawyer.visibility.chamberAddress ? googleMapsEmbedUrl(mapQuery) : ''
 
   return (
     <div className="container-page py-10">
@@ -39,8 +85,11 @@ export default function LawyerPublicProfilePage() {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-2">
+            <Badge variant={practiceType === 'criminal' ? 'warning' : practiceType === 'both' ? 'info' : 'teal'}>
+              {practiceTypeLabel(practiceType)}
+            </Badge>
             {lawyer.practiceAreas.map((a) => (
-              <Badge key={a} variant="teal">
+              <Badge key={a} variant="muted">
                 {a}
               </Badge>
             ))}
@@ -49,9 +98,9 @@ export default function LawyerPublicProfilePage() {
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
             <ul className="space-y-3 text-sm">
               <li className="flex items-start gap-3">
-                <Scale className="mt-0.5 h-4 w-4 text-teal" />
+                <Briefcase className="mt-0.5 h-4 w-4 text-teal" />
                 <span>
-                  <strong>Bar Association:</strong> {lawyer.barAssociation}
+                  <strong>Bar:</strong> {lawyer.barAssociation}
                 </span>
               </li>
               {lawyer.visibility.enrollmentNumber && (
@@ -66,6 +115,7 @@ export default function LawyerPublicProfilePage() {
                 <Building2 className="mt-0.5 h-4 w-4 text-teal" />
                 <span>
                   <strong>Chamber:</strong> {lawyer.chamberName}
+                  {lawyer.chamberLocation ? ` · ${lawyer.chamberLocation}` : ''}
                 </span>
               </li>
               {lawyer.visibility.chamberAddress && (
@@ -77,7 +127,7 @@ export default function LawyerPublicProfilePage() {
               <li className="flex items-start gap-3">
                 <Scale className="mt-0.5 h-4 w-4 text-teal" />
                 <span>
-                  {lawyer.court} · {lawyer.district}
+                  {lawyer.court} · {[lawyer.district, lawyer.division].filter(Boolean).join(', ')}
                 </span>
               </li>
               <li className="flex items-start gap-3">
@@ -104,13 +154,32 @@ export default function LawyerPublicProfilePage() {
                   <li className="text-muted">মোবাইল পাবলিক নয়</li>
                 )}
               </ul>
+              {lawyer.visibility.bio && lawyer.bio && (
+                <p className="mt-4 text-sm text-muted">{lawyer.bio}</p>
+              )}
             </div>
           </div>
 
-          {lawyer.visibility.bio && (
-            <div className="mt-8">
-              <h2 className="font-display text-xl font-semibold">Professional Bio</h2>
-              <p className="mt-2 max-w-3xl text-muted leading-relaxed">{lawyer.bio}</p>
+          {mapEmbed && (
+            <div className="mt-8 overflow-hidden rounded-xl border border-border">
+              <div className="flex items-center justify-between gap-2 border-b border-border bg-slate-panel/60 px-3 py-2">
+                <p className="text-xs font-semibold text-ink">চেম্বার লোকেশন (ম্যাপ)</p>
+                <a
+                  href={googleMapsOpenUrl(mapQuery)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-semibold text-teal hover:underline"
+                >
+                  Google Maps →
+                </a>
+              </div>
+              <iframe
+                title="Chamber location map"
+                src={mapEmbed}
+                className="h-56 w-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
             </div>
           )}
         </div>

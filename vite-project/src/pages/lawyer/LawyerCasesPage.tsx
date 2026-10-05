@@ -1,25 +1,61 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cases, staffMembers } from '@/data/mock'
+import { cases as mockCases, staffMembers } from '@/data/mock'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { CaseTable } from '@/components/cases/CaseTable'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import type { Case, Staff } from '@/types'
 
 export default function LawyerCasesPage() {
   const user = useAuthStore((s) => s.user)
+  const mine = (c: Case) =>
+    c.ownerLawyerId === user?.id ||
+    c.plaintiffLawyerId === user?.id ||
+    c.defendantLawyerId === user?.id
+
+  const [list, setList] = useState<Case[]>(() => mockCases.filter(mine))
+  const [myStaff, setMyStaff] = useState<Staff[]>(() => staffMembers.filter((s) => s.lawyerId === user?.id))
+  const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
   const [court, setCourt] = useState('')
   const [type, setType] = useState('')
   const [staff, setStaff] = useState('')
 
-  const myCases = cases.filter((c) => c.ownerLawyerId === user?.id)
-  const myStaff = staffMembers.filter((s) => s.lawyerId === user?.id)
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    Promise.all([
+      api<{ data: Case[] }>('/cases').catch(() => ({
+        data: mockCases.filter(
+          (c) =>
+            c.ownerLawyerId === user?.id ||
+            c.plaintiffLawyerId === user?.id ||
+            c.defendantLawyerId === user?.id,
+        ),
+      })),
+      api<{ data: Staff[] }>('/staff').catch(() => ({
+        data: staffMembers.filter((s) => s.lawyerId === user?.id),
+      })),
+    ])
+      .then(([caseRes, staffRes]) => {
+        if (cancelled) return
+        setList(caseRes.data || [])
+        setMyStaff(staffRes.data || [])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
 
   const filtered = useMemo(() => {
-    return myCases.filter((c) => {
+    return list.filter((c) => {
       if (q && !(`${c.caseNumber} ${c.caseTitle}`.toLowerCase().includes(q.toLowerCase()))) return false
       if (status && c.status !== status) return false
       if (court && !c.courtName.toLowerCase().includes(court.toLowerCase())) return false
@@ -27,14 +63,17 @@ export default function LawyerCasesPage() {
       if (staff && !c.assignedStaffIds.includes(staff)) return false
       return true
     })
-  }, [myCases, q, status, court, type, staff])
+  }, [list, q, status, court, type, staff])
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold">My Cases</h1>
-          <p className="text-sm text-muted">{filtered.length} টি মামলা</p>
+          <p className="text-sm text-muted">
+            {loading ? 'লোড হচ্ছে…' : `${filtered.length} টি মামলা`}
+            {myStaff.length === 0 ? ' · Staff নেই — নিজে পরিচালনা করছেন' : ''}
+          </p>
         </div>
         <Link to="/lawyer/cases/new">
           <Button>Add New Case</Button>
@@ -59,18 +98,24 @@ export default function LawyerCasesPage() {
           value={type}
           onChange={(e) => setType(e.target.value)}
           placeholder="সব"
-          options={[...new Set(myCases.map((c) => c.caseType))].map((v) => ({ value: v, label: v }))}
+          options={[...new Set(list.map((c) => c.caseType).filter(Boolean))].map((v) => ({ value: v, label: v }))}
         />
         <Select
           label="Assigned Staff"
           value={staff}
           onChange={(e) => setStaff(e.target.value)}
-          placeholder="সব"
-          options={myStaff.map((s) => ({ value: s.id, label: s.name }))}
+          placeholder={myStaff.length ? 'সব' : 'স্টাফ নেই'}
+          options={myStaff.map((s) => ({ value: s.id, label: `${s.name} (${s.staffCode || s.id})` }))}
         />
       </div>
 
-      <CaseTable cases={filtered} />
+      {!loading && filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-white px-4 py-12 text-center text-sm text-muted">
+          কোনো মামলা নেই। <Link to="/lawyer/cases/new" className="font-semibold text-teal hover:underline">Add New Case</Link> দিয়ে যোগ করুন।
+        </div>
+      ) : (
+        <CaseTable cases={filtered} />
+      )}
     </div>
   )
 }

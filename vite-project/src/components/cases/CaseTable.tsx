@@ -55,11 +55,16 @@ export function CaseTable({
           {
             key: 'staff',
             header: 'Responsible Staff',
-            render: (row: Case) =>
-              row.assignedStaffIds
-                .map((id) => getStaffById(id)?.name)
-                .filter(Boolean)
-                .join(', ') || '—',
+            render: (row: Case) => {
+              const ids = row.assignedStaffIds || []
+              if (ids.length === 0) return 'নিজে পরিচালনা'
+              return (
+                ids
+                  .map((id) => getStaffById(id)?.name)
+                  .filter(Boolean)
+                  .join(', ') || 'নিজে পরিচালনা'
+              )
+            },
           } as Column<Case>,
         ]
       : []),

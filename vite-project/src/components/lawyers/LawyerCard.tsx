@@ -3,8 +3,11 @@ import { MapPin, Briefcase, Scale } from 'lucide-react'
 import type { Lawyer } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { inferPracticeType, practiceTypeLabel } from '@/lib/practiceTypes'
 
 export function LawyerCard({ lawyer }: { lawyer: Lawyer }) {
+  const practiceType = lawyer.practiceType || inferPracticeType(lawyer.practiceAreas)
+
   return (
     <article className="group flex h-full flex-col rounded-xl border border-border bg-white p-5 shadow-sm transition hover:border-teal/40 hover:shadow-md">
       <div className="flex items-start gap-4">
@@ -23,8 +26,13 @@ export function LawyerCard({ lawyer }: { lawyer: Lawyer }) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-1.5">
-        {lawyer.practiceAreas.slice(0, 3).map((area) => (
-          <Badge key={area} variant="teal">
+        <Badge
+          variant={practiceType === 'criminal' ? 'warning' : practiceType === 'both' ? 'info' : 'teal'}
+        >
+          {practiceTypeLabel(practiceType)}
+        </Badge>
+        {lawyer.practiceAreas.slice(0, 2).map((area) => (
+          <Badge key={area} variant="muted">
             {area}
           </Badge>
         ))}
@@ -37,7 +45,7 @@ export function LawyerCard({ lawyer }: { lawyer: Lawyer }) {
         </li>
         <li className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-teal" />
-          {lawyer.district}
+          {[lawyer.chamberLocation, lawyer.district].filter(Boolean).join(' · ') || lawyer.district}
         </li>
         <li className="flex items-center gap-2">
           <Briefcase className="h-4 w-4 text-teal" />

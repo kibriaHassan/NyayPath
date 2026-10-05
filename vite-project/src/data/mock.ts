@@ -8,6 +8,14 @@ import type {
   StaffPermissions,
   Task,
 } from '@/types'
+import { findDivisionByDistrict } from '@/lib/bdLocations'
+import { filterCasesBySearch, toPublicCase } from '@/lib/caseSearch'
+import { addDays, nextWorkingDayKey, toDateKey, todayKey } from '@/lib/courtCalendar'
+import {
+  inferPracticeType,
+  matchesPracticeFilter,
+  type PracticeType,
+} from '@/lib/practiceTypes'
 
 const defaultPermissions = (overrides: Partial<StaffPermissions> = {}): StaffPermissions => ({
   viewCases: true,
@@ -30,10 +38,13 @@ export const lawyers: Lawyer[] = [
     barAssociation: 'ঢাকা বার অ্যাসোসিয়েশন',
     enrollmentNumber: 'D-4521/2012',
     practiceAreas: ['সিভিল', 'পারিবারিক', 'জমি জমা'],
+    practiceType: 'civil',
     court: 'ঢাকা জেলা জজ আদালত',
+    division: 'ঢাকা',
     district: 'ঢাকা',
     chamberName: 'ইসলাম ল চেম্বার',
     chamberAddress: 'রুম ৩০৫, সুপ্রিম কোর্ট বার বিল্ডিং, ঢাকা',
+    chamberLocation: 'সুপ্রিম কোর্ট বার বিল্ডিং',
     bio: '১৪ বছরের অভিজ্ঞতাসম্পন্ন সিভিল ও পারিবারিক আইন বিশেষজ্ঞ। জমি সংক্রান্ত মামলায় দক্ষ।',
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=RI&backgroundColor=0c2e33',
     yearsOfExperience: 14,
@@ -56,10 +67,12 @@ export const lawyers: Lawyer[] = [
     barAssociation: 'বাংলাদেশ সুপ্রিম কোর্ট বার',
     enrollmentNumber: 'SC-2189/2015',
     practiceAreas: ['ফৌজদারি', 'সাংবিধানিক'],
+    practiceType: 'criminal',
     court: 'হাইকোর্ট বিভাগ',
     district: 'ঢাকা',
     chamberName: 'আহমেদ অ্যাসোসিয়েটস',
     chamberAddress: 'প্লট ১২, গুলশান অ্যাভিনিউ, ঢাকা',
+    chamberLocation: 'গুলশান',
     bio: 'ফৌজদারি ও সাংবিধানিক মামলায় বিশেষজ্ঞ। নারী ও শিশু অধিকার বিষয়ে সক্রিয়।',
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=SA&backgroundColor=1a6b75',
     yearsOfExperience: 11,
@@ -81,11 +94,13 @@ export const lawyers: Lawyer[] = [
     mobile: '01913-456789',
     barAssociation: 'চট্টগ্রাম বার অ্যাসোসিয়েশন',
     enrollmentNumber: 'C-3310/2010',
-    practiceAreas: ['কর্পোরেট', 'ব্যাংকিং', 'চুক্তি'],
+    practiceAreas: ['কর্পোরেট', 'ব্যাংকিং', 'চুক্তি', 'সিভিল'],
+    practiceType: 'civil',
     court: 'চট্টগ্রাম জেলা জজ আদালত',
     district: 'চট্টগ্রাম',
     chamberName: 'হাসান ল ফার্ম',
     chamberAddress: 'আগ্রাবাদ কমার্সিয়াল এরিয়া, চট্টগ্রাম',
+    chamberLocation: 'আগ্রাবাদ',
     bio: 'কর্পোরেট ও বাণিজ্যিক আইনে ১৬ বছরের অভিজ্ঞতা।',
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=KH&backgroundColor=9a6b3f',
     yearsOfExperience: 16,
@@ -108,10 +123,12 @@ export const lawyers: Lawyer[] = [
     barAssociation: 'রাজশাহী বার অ্যাসোসিয়েশন',
     enrollmentNumber: 'R-1876/2018',
     practiceAreas: ['পারিবারিক', 'উত্তরাধিকার', 'সিভিল'],
+    practiceType: 'civil',
     court: 'রাজশাহী জেলা জজ আদালত',
     district: 'রাজশাহী',
     chamberName: 'নাহার চেম্বার',
     chamberAddress: 'শাহ মখদুম এভিনিউ, রাজশাহী',
+    chamberLocation: 'শাহ মখদুম এভিনিউ',
     bio: 'পারিবারিক ও উত্তরাধিকার মামলায় বিশেষজ্ঞ।',
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=NN&backgroundColor=164850',
     yearsOfExperience: 8,
@@ -133,11 +150,13 @@ export const lawyers: Lawyer[] = [
     mobile: '01515-678901',
     barAssociation: 'সিলেট বার অ্যাসোসিয়েশন',
     enrollmentNumber: 'S-9901/2014',
-    practiceAreas: ['জমি জমা', 'রেকর্ড সংশোধন', 'সিভিল'],
+    practiceAreas: ['জমি জমা', 'রেকর্ড সংশোধন', 'সিভিল', 'ফৌজদারি'],
+    practiceType: 'both',
     court: 'সিলেট জেলা জজ আদালত',
     district: 'সিলেট',
     chamberName: 'আলম অ্যান্ড পার্টনার্স',
     chamberAddress: 'জিন্দাবাজার, সিলেট',
+    chamberLocation: 'জিন্দাবাজার',
     bio: 'জমি ও রেকর্ড সংক্রান্ত মামলায় দীর্ঘ অভিজ্ঞতা।',
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=TA&backgroundColor=0c2e33',
     yearsOfExperience: 12,
@@ -157,17 +176,24 @@ export const lawyers: Lawyer[] = [
 export const staffMembers: Staff[] = [
   {
     id: 'stf-1',
+    staffCode: 'NP-STF001',
     lawyerId: 'law-1',
     name: 'মাহমুদ হাসান',
     email: 'mahmud@nyaypath.bd',
     mobile: '01720-111111',
     role: 'Case Manager',
-    permissions: defaultPermissions({ editCases: true, manageDocuments: true, manageTasks: true }),
+    permissions: defaultPermissions({
+      editCases: true,
+      editHearingDates: true,
+      manageDocuments: true,
+      manageTasks: true,
+    }),
     active: true,
     photo: 'https://api.dicebear.com/9.x/initials/svg?seed=MH&backgroundColor=1a6b75',
   },
   {
     id: 'stf-2',
+    staffCode: 'NP-STF002',
     lawyerId: 'law-1',
     name: 'ফারহানা ইয়াসমিন',
     email: 'farhana@nyaypath.bd',
@@ -179,6 +205,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-3',
+    staffCode: 'NP-STF003',
     lawyerId: 'law-1',
     name: 'রাকিবুল ইসলাম',
     email: 'rakib@nyaypath.bd',
@@ -190,6 +217,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-4',
+    staffCode: 'NP-STF004',
     lawyerId: 'law-2',
     name: 'নুসরাত জাহান',
     email: 'nusrat@nyaypath.bd',
@@ -201,6 +229,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-5',
+    staffCode: 'NP-STF005',
     lawyerId: 'law-2',
     name: 'ইমরান হোসেন',
     email: 'imran@nyaypath.bd',
@@ -212,6 +241,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-6',
+    staffCode: 'NP-STF006',
     lawyerId: 'law-3',
     name: 'সাদ্দাম হোসেন',
     email: 'saddam@nyaypath.bd',
@@ -223,6 +253,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-7',
+    staffCode: 'NP-STF007',
     lawyerId: 'law-4',
     name: 'আফরোজা বেগম',
     email: 'afroza@nyaypath.bd',
@@ -234,6 +265,7 @@ export const staffMembers: Staff[] = [
   },
   {
     id: 'stf-8',
+    staffCode: 'NP-STF008',
     lawyerId: 'law-5',
     name: 'জাহিদুল করিম',
     email: 'jahid@nyaypath.bd',
@@ -768,6 +800,7 @@ export const notifications: Notification[] = [
 export const DEMO_ACCOUNTS = {
   lawyer: { email: 'rafiqul@nyaypath.bd', password: 'lawyer123', id: 'law-1' },
   staff: { email: 'mahmud@nyaypath.bd', password: 'staff123', id: 'stf-1' },
+  admin: { email: 'admin@nyaypath.bd', password: 'admin123', id: 'admin-1' },
 }
 
 export function getLawyerById(id?: string) {
@@ -780,23 +813,144 @@ export function getStaffById(id?: string) {
   return staffMembers.find((s) => s.id === id)
 }
 
+export function findStaffByQuery(query: string) {
+  const q = query.trim().toLowerCase()
+  if (!q) return undefined
+  const digits = q.replace(/\D/g, '')
+  return staffMembers.find((s) => {
+    if (s.staffCode.toLowerCase() === q) return true
+    if (s.email.toLowerCase() === q) return true
+    if (digits.length >= 8 && s.mobile.replace(/\D/g, '').endsWith(digits)) return true
+    if (s.mobile.replace(/[\s-]/g, '') === q.replace(/[\s-]/g, '')) return true
+    return false
+  })
+}
+
 export function getCaseById(id?: string) {
   if (!id) return undefined
   return cases.find((c) => c.id === id)
 }
 
-export function searchCases(caseNumber: string, court?: string) {
-  const q = caseNumber.trim().toLowerCase()
-  return cases.filter((c) => {
-    const matchNumber = c.caseNumber.toLowerCase().includes(q)
-    const matchCourt = court
-      ? c.courtLocation.toLowerCase().includes(court.toLowerCase()) ||
-        c.courtName.toLowerCase().includes(court.toLowerCase())
-      : true
-    return matchNumber && matchCourt
-  })
+export function searchCases(
+  caseNumber: string,
+  opts?: { court?: string; division?: string; district?: string; courtType?: string } | string,
+) {
+  // backward compat: searchCases(q, courtString)
+  const filters =
+    typeof opts === 'string'
+      ? { q: caseNumber, division: '', district: '', court: opts, courtType: '' }
+      : {
+          q: caseNumber,
+          division: opts?.division || '',
+          district: opts?.district || '',
+          courtType: opts?.courtType || '',
+          court: opts?.court || '',
+        }
+  // district required for public search — if only court string passed, use it as soft court filter
+  if (!filters.district && typeof opts === 'string') {
+    return cases
+      .filter((c) => {
+        const q = caseNumber.trim().toLowerCase()
+        if (!c.caseNumber.toLowerCase().includes(q)) return false
+        const court = opts.toLowerCase()
+        return (
+          c.courtLocation.toLowerCase().includes(court) || c.courtName.toLowerCase().includes(court)
+        )
+      })
+      .map(toPublicCase)
+  }
+  return filterCasesBySearch(cases, filters).map(toPublicCase)
+}
+
+/** Ensure every mock case has division/district for location search */
+for (const c of cases) {
+  if (!c.district) c.district = c.courtLocation
+  if (!c.division) c.division = findDivisionByDistrict(c.district || '') || undefined
 }
 
 export function getPublicLawyers() {
   return lawyers.filter((l) => l.publicProfileEnabled)
 }
+
+export function filterLawyersByPracticeType(list: Lawyer[], filter: PracticeType | '') {
+  return list.filter((l) =>
+    matchesPracticeFilter(l.practiceType || inferPracticeType(l.practiceAreas), filter),
+  )
+}
+
+/** Align demo hearing dates with "today" so dashboard sections always have data */
+;(function applyDemoHearingSchedule() {
+  const today = todayKey()
+  const next = nextWorkingDayKey()
+  const overdueA = toDateKey(addDays(new Date(), -5))
+  const overdueB = toDateKey(addDays(new Date(), -12))
+
+  const byId = (id: string) => cases.find((c) => c.id === id)
+
+  const c1 = byId('case-1')
+  if (c1) {
+    c1.nextHearingDate = today
+    c1.nextHearingPurpose = 'আর্গুমেন্ট'
+    c1.status = 'Hearing Scheduled'
+  }
+
+  const c6 = byId('case-6')
+  if (c6) {
+    c6.nextHearingDate = next
+    c6.nextHearingPurpose = 'স্থগিতাদেশ শুনানি'
+    c6.status = 'Hearing Scheduled'
+  }
+
+  // Overdue — date passed, purpose not entered (stays in "update needed" section)
+  const c5 = byId('case-5')
+  if (c5) {
+    c5.nextHearingDate = overdueA
+    c5.nextHearingPurpose = undefined
+    c5.lastHearingDate = overdueA
+    c5.status = 'Hearing Scheduled'
+    c5.importantNotes = 'শেষ তারিখ চলে গেছে — পরবর্তী তারিখ এন্ট্রি বাকি।'
+  }
+
+  // Extra overdue owned by law-1 for lawyer dashboard demo
+  if (!cases.some((c) => c.id === 'case-11')) {
+    cases.push({
+      id: 'case-11',
+      caseNumber: '901/2026',
+      caseTitle: 'জাহিদা বেগম বনাম সিটি কর্পোরেশন',
+      caseType: 'সিভিল',
+      courtName: 'ঢাকা জেলা জজ আদালত',
+      courtLocation: 'ঢাকা',
+      filingDate: '2026-03-01',
+      status: 'Hearing Scheduled',
+      plaintiff: 'জাহিদা বেগম',
+      defendant: 'ঢাকা উত্তর সিটি কর্পোরেশন',
+      plaintiffLawyerId: 'law-1',
+      plaintiffLawyerName: 'অ্যাডভোকেট রফিকুল ইসলাম',
+      nextHearingDate: overdueB,
+      lastHearingDate: overdueB,
+      judgeName: 'বিচারক আব্দুল্লাহ আল মামুন',
+      description: 'ইউটিলিটি সংযোগ বিরোধ — শেষ শুনানির পরবর্তী তারিখ এন্ট্রি হয়নি।',
+      assignedStaffIds: ['stf-1'],
+      importantNotes: 'Staff তারিখ আপডেট করেনি।',
+      privateNotes: 'ক্লায়েন্ট ফোন করেছে।',
+      ownerLawyerId: 'law-1',
+    })
+  }
+
+  // Next-day case also for staff stf-1 visibility
+  const cAssignedNext = byId('case-1')
+  // already today for stf-1
+
+  // Sync a couple of hearing rows for calendar views
+  const hToday = hearings.find((h) => h.id === 'hr-1')
+  if (hToday) {
+    hToday.hearingDate = today
+    hToday.hearingType = 'Argument'
+  }
+  const hNext = hearings.find((h) => h.id === 'hr-4')
+  if (hNext) {
+    hNext.hearingDate = next
+    hNext.hearingType = 'Injunction'
+  }
+})()
+
