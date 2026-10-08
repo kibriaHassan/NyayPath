@@ -28,8 +28,9 @@ import { useAuthStore } from '@/store/authStore'
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
-import { cases } from '@/data/mock'
-import { isSameDateKey, nextWorkingDayKey, todayKey } from '@/lib/courtCalendar'
+import { api } from '@/lib/api'
+import { activeCourtDays, isSameDateKey } from '@/lib/courtCalendar'
+import type { Case } from '@/types'
 
 const COLLAPSE_KEY = 'nyaypath-sidebar-collapsed'
 
@@ -111,20 +112,33 @@ export const adminNav: NavItem[] = [
 
 function useUrgentHearingCount(basePath: string) {
   const user = useAuthStore((s) => s.user)
+  const [rows, setRows] = useState<Case[]>([])
+
+  useEffect(() => {
+    if (!user || basePath === '/admin') return
+    let cancelled = false
+    api<{ data: Case[] }>('/cases')
+      .then((res) => {
+        if (!cancelled) setRows(res.data || [])
+      })
+      .catch(() => {
+        if (!cancelled) setRows([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [basePath, user])
+
   return useMemo(() => {
     if (!user || basePath === '/admin') return 0
-    const today = todayKey()
-    const next = nextWorkingDayKey()
-    const mine =
-      basePath === '/lawyer'
-        ? cases.filter((c) => c.ownerLawyerId === user.id)
-        : cases.filter((c) => c.assignedStaffIds.includes(user.id))
-    return mine.filter(
+    const court = activeCourtDays()
+    return rows.filter(
       (c) =>
         c.nextHearingDate &&
-        (isSameDateKey(c.nextHearingDate, today) || isSameDateKey(c.nextHearingDate, next)),
+        (isSameDateKey(c.nextHearingDate, court.primaryKey) ||
+          isSameDateKey(c.nextHearingDate, court.secondaryKey)),
     ).length
-  }, [basePath, user])
+  }, [basePath, rows, user])
 }
 
 function SidebarNav({

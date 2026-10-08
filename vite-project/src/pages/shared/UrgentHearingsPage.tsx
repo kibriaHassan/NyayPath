@@ -2,14 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Flame, Sunrise, CalendarDays } from 'lucide-react'
 import { HearingScheduleSections } from '@/components/hearings/HearingScheduleSections'
-import { cases, getStaffById } from '@/data/mock'
+import { cases as mockCases, getStaffById } from '@/data/mock'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
-import {
-  formatCourtDateHeading,
-  isSameDateKey,
-  nextWorkingDayKey,
-  todayKey,
-} from '@/lib/courtCalendar'
+import { activeCourtDays, formatCourtDateHeading, isSameDateKey } from '@/lib/courtCalendar'
 import type { Case } from '@/types'
 
 type RoleScope = 'lawyer' | 'staff'
@@ -19,26 +15,38 @@ export function UrgentHearingsPage({ scope }: { scope: RoleScope }) {
   const basePath = scope === 'lawyer' ? '/lawyer/cases' : '/staff/cases'
   const hearingsPath = scope === 'lawyer' ? '/lawyer/hearings' : '/staff/hearings'
 
-  const scopedCases = useMemo(() => {
+  const fallback = useMemo(() => {
     if (scope === 'lawyer') {
-      return cases.filter((c) => c.ownerLawyerId === user?.id)
+      const id = user?.id
+      return mockCases.filter(
+        (c) => c.ownerLawyerId === id || c.plaintiffLawyerId === id || c.defendantLawyerId === id,
+      )
     }
-    return cases.filter((c) => c.assignedStaffIds.includes(user?.id || ''))
+    return mockCases.filter((c) => c.assignedStaffIds.includes(user?.id || ''))
   }, [scope, user?.id])
 
-  const [list, setList] = useState<Case[]>(scopedCases)
+  const [list, setList] = useState<Case[]>([])
 
   useEffect(() => {
-    setList(scopedCases)
-  }, [scopedCases])
+    let cancelled = false
+    api<{ data: Case[] }>('/cases')
+      .then((res) => {
+        if (!cancelled) setList(res.data || [])
+      })
+      .catch(() => {
+        if (!cancelled) setList(fallback)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [fallback])
 
-  const today = todayKey()
-  const next = nextWorkingDayKey()
-  const todayMeta = formatCourtDateHeading(today)
-  const nextMeta = formatCourtDateHeading(next)
+  const court = activeCourtDays()
+  const todayMeta = formatCourtDateHeading(court.primary)
+  const nextMeta = formatCourtDateHeading(court.secondary)
 
-  const todayCount = list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, today)).length
-  const nextCount = list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, next)).length
+  const todayCount = list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, court.primaryKey)).length
+  const nextCount = list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, court.secondaryKey)).length
   const total = todayCount + nextCount
 
   const staff = scope === 'staff' ? getStaffById(user?.id) : null
