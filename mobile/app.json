@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "NyayPath",
+    "slug": "nyaypath",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b1f2a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "bd.nyaypath.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b1f2a",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "bd.nyaypath.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "প্রোফাইল ছবি বদলাতে গ্যালারি অ্যাক্সেস দিন।"
+        }
+      ]
+    ]
+  }
+}

@@ -251,24 +251,38 @@ function matchesCourtTypeName(courtName, courtType) {
 }
 
 function matchesPublicCaseSearch(c, { q, division, district, courtType, court }) {
+  // Exact normalized case number (বিভাগ+জেলা+নম্বর → সেই নম্বরে যত মামলা)
   const cn = normalizeCaseNumber(c.caseNumber)
-  const caseNum = (cn.ok ? cn.value : String(c.caseNumber || '')).toLowerCase()
-  if (!caseNum.includes(q)) return false
+  const caseNum = (cn.ok ? cn.value : String(c.caseNumber || '').trim()).toLowerCase()
+  const qn = normalizeCaseNumber(q)
+  const qVal = (qn.ok ? qn.value : String(q || '').trim()).toLowerCase()
+  if (!qVal || caseNum !== qVal) return false
 
   const cDistrict = caseDistrictOf(c)
   const cDivision = caseDivisionOf(c)
-  const blob = `${c.courtName || ''} ${c.courtLocation || ''} ${cDistrict}`.toLowerCase()
 
-  if (district) {
-    const exact = cDistrict === district
-    if (!exact && !blob.includes(district.toLowerCase())) return false
+  // District is required for public search — exact match
+  if (district && cDistrict !== district) {
+    // legacy rows: courtLocation may hold district
+    if (String(c.courtLocation || '').trim() !== district) return false
   }
-  if (division && cDivision && cDivision !== division) return false
+  if (division) {
+    const resolved = cDivision || findDivisionByDistrictName(cDistrict)
+    if (resolved && resolved !== division) return false
+  }
 
-  if (court) {
-    if (c.courtName !== court && !String(c.courtName || '').includes(court)) return false
-  } else if (courtType && !matchesCourtTypeName(c.courtName, courtType)) {
-    return false
+  // Optional narrow filters — only when provided
+  const courtFilter = String(court || '').trim()
+  const typeFilter = String(courtType || '').trim()
+  if (courtFilter) {
+    const name = String(c.courtName || '')
+    if (name !== courtFilter && !name.includes(courtFilter)) return false
+    return true
+  }
+  if (typeFilter) {
+    const byName = matchesCourtTypeName(c.courtName, typeFilter)
+    const byField = String(c.courtType || '') === typeFilter
+    if (!byName && !byField) return false
   }
   return true
 }
@@ -285,6 +299,80 @@ function ensureCaseLocations(database) {
       c.division = findDivisionByDistrictName(c.district) || ''
       if (c.division) dirty = true
     }
+  }
+  return dirty
+}
+
+/** Same case number + district, different courts — for public search demos */
+function ensureMultiCourtSearchCases(database) {
+  if (!database?.cases) return false
+  let dirty = false
+  const has = (courtName) =>
+    database.cases.some(
+      (c) => String(c.caseNumber) === '123/2026' && String(c.courtName || '') === courtName,
+    )
+  const base = {
+    caseNumber: '123/2026',
+    caseType: 'সিভিল স্যুট',
+    courtLocation: 'ঢাকা',
+    division: 'ঢাকা',
+    district: 'ঢাকা',
+    filingDate: '2025-11-12',
+    status: 'Hearing Scheduled',
+    plaintiff: 'করিম উদ্দিন',
+    defendant: 'রহিম মিয়া',
+    nextHearingDate: '2026-09-20',
+    assignedStaffIds: [],
+    importantNotes: '',
+    privateNotes: '',
+  }
+  // Seed case-1: ensure location + courtType so optional filters work
+  const seed = database.cases.find(
+    (c) =>
+      c.id === 'case-1' ||
+      (String(c.caseNumber) === '123/2026' && String(c.courtName || '').includes('জেলা জজ')),
+  )
+  if (seed) {
+    if (!seed.district) {
+      seed.district = 'ঢাকা'
+      dirty = true
+    }
+    if (!seed.division) {
+      seed.division = 'ঢাকা'
+      dirty = true
+    }
+    if (!seed.courtType) {
+      seed.courtType = 'district_judge'
+      dirty = true
+    }
+  }
+  if (!has('ঢাকা পারিবারিক আদালত')) {
+    database.cases.push({
+      ...base,
+      id: uid('case'),
+      caseTitle: 'করিম উদ্দিন বনাম রহিম মিয়া (পারিবারিক)',
+      courtName: 'ঢাকা পারিবারিক আদালত',
+      courtType: 'family',
+      description: 'একই নম্বর — পারিবারিক আদালত।',
+      ownerLawyerId: 'law-1',
+      plaintiffLawyerId: 'law-1',
+      plaintiffLawyerName: 'অ্যাডভোকেট রফিকুল ইসলাম',
+    })
+    dirty = true
+  }
+  if (!has('ঢাকা সেশন জজ আদালত')) {
+    database.cases.push({
+      ...base,
+      id: uid('case'),
+      caseTitle: 'করিম উদ্দিন বনাম রহিম মিয়া (সেশন)',
+      courtName: 'ঢাকা সেশন জজ আদালত',
+      courtType: 'session',
+      description: 'একই নম্বর — সেশন জজ আদালত।',
+      ownerLawyerId: 'law-2',
+      defendantLawyerId: 'law-2',
+      defendantLawyerName: 'অ্যাডভোকেট সাবরিনা আহমেদ',
+    })
+    dirty = true
   }
   return dirty
 }
@@ -386,7 +474,7 @@ function seedDb() {
       chamberAddress: 'রুম ৩০৫, সুপ্রিম কোর্ট বার বিল্ডিং, ঢাকা',
       chamberLocation: 'সুপ্রিম কোর্ট বার বিল্ডিং',
       bio: '১৪ বছরের অভিজ্ঞতাসম্পন্ন সিভিল ও পারিবারিক আইন বিশেষজ্ঞ।',
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=RI&backgroundColor=0c2e33',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=RI&backgroundColor=0c2e33',
       yearsOfExperience: 14,
       designation: 'অ্যাডভোকেট',
       publicProfileEnabled: true,
@@ -411,7 +499,7 @@ function seedDb() {
       chamberAddress: 'প্লট ১২, গুলশান অ্যাভিনিউ, ঢাকা',
       chamberLocation: 'গুলশান',
       bio: 'ফৌজদারি ও সাংবিধানিক মামলায় বিশেষজ্ঞ।',
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=SA&backgroundColor=1a6b75',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=SA&backgroundColor=1a6b75',
       yearsOfExperience: 11,
       designation: 'অ্যাডভোকেট',
       publicProfileEnabled: true,
@@ -433,7 +521,7 @@ function seedDb() {
       chamberName: 'হাসান ল ফার্ম',
       chamberAddress: 'আগ্রাবাদ কমার্সিয়াল এরিয়া, চট্টগ্রাম',
       bio: 'কর্পোরেট ও বাণিজ্যিক আইনে ১৬ বছরের অভিজ্ঞতা।',
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=KH&backgroundColor=9a6b3f',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=KH&backgroundColor=9a6b3f',
       yearsOfExperience: 16,
       designation: 'সিনিয়র অ্যাডভোকেট',
       publicProfileEnabled: true,
@@ -455,7 +543,7 @@ function seedDb() {
       chamberName: 'নাহার চেম্বার',
       chamberAddress: 'শাহ মখদুম এভিনিউ, রাজশাহী',
       bio: 'পারিবারিক ও উত্তরাধিকার মামলায় বিশেষজ্ঞ।',
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=NN&backgroundColor=164850',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=NN&backgroundColor=164850',
       yearsOfExperience: 8,
       designation: 'অ্যাডভোকেট',
       publicProfileEnabled: true,
@@ -477,7 +565,7 @@ function seedDb() {
       chamberName: 'আলম অ্যান্ড পার্টনার্স',
       chamberAddress: 'জিন্দাবাজার, সিলেট',
       bio: 'জমি ও রেকর্ড সংক্রান্ত মামলায় দীর্ঘ অভিজ্ঞতা।',
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=TA&backgroundColor=0c2e33',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=TA&backgroundColor=0c2e33',
       yearsOfExperience: 12,
       designation: 'অ্যাডভোকেট',
       publicProfileEnabled: true,
@@ -498,7 +586,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Case Manager',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=MH&backgroundColor=1a6b75',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=MH&backgroundColor=1a6b75',
       permissions: {
         viewCases: true,
         editCases: true,
@@ -521,7 +609,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Legal Assistant',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=FY&backgroundColor=9a6b3f',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=FY&backgroundColor=9a6b3f',
       permissions: {
         viewCases: true,
         editCases: false,
@@ -544,7 +632,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Office Assistant',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=RI2&backgroundColor=164850',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=RI2&backgroundColor=164850',
       permissions: {
         viewCases: true,
         editCases: false,
@@ -567,7 +655,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Case Manager',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=NJ&backgroundColor=0c2e33',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=NJ&backgroundColor=0c2e33',
       permissions: {
         viewCases: true,
         editCases: true,
@@ -590,7 +678,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Legal Assistant',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=IH&backgroundColor=1a6b75',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=IH&backgroundColor=1a6b75',
       permissions: {
         viewCases: true,
         editCases: false,
@@ -613,7 +701,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Case Manager',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=SH&backgroundColor=9a6b3f',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=SH&backgroundColor=9a6b3f',
       permissions: {
         viewCases: true,
         editCases: true,
@@ -636,7 +724,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Legal Assistant',
       active: true,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=AB&backgroundColor=164850',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=AB&backgroundColor=164850',
       permissions: {
         viewCases: true,
         editCases: false,
@@ -659,7 +747,7 @@ function seedDb() {
       passwordHash: staffPass,
       role: 'Office Assistant',
       active: false,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=JK&backgroundColor=0c2e33',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=JK&backgroundColor=0c2e33',
       permissions: {
         viewCases: true,
         editCases: false,
@@ -1101,7 +1189,7 @@ function seedDb() {
       name: 'NyayPath Admin',
       email: 'admin@nyaypath.bd',
       passwordHash: adminPass,
-      photo: 'https://api.dicebear.com/9.x/initials/svg?seed=AD&backgroundColor=0c2e33',
+      photo: 'https://api.dicebear.com/9.x/initials/png?seed=AD&backgroundColor=0c2e33',
       active: true,
     },
   ]
@@ -1187,7 +1275,7 @@ function ensureAdminCatalog(database) {
         name: 'NyayPath Admin',
         email: 'admin@nyaypath.bd',
         passwordHash: hashPassword('admin123'),
-        photo: 'https://api.dicebear.com/9.x/initials/svg?seed=AD&backgroundColor=0c2e33',
+        photo: 'https://api.dicebear.com/9.x/initials/png?seed=AD&backgroundColor=0c2e33',
         active: true,
       },
     ]
@@ -1363,8 +1451,9 @@ async function initDatabase() {
       db.contacts = db.contacts || []
       const dirtyStaff = ensureStaffCodes(db)
       const dirtyCases = ensureCaseLocations(db)
+      const dirtyMulti = ensureMultiCourtSearchCases(db)
       const dirtyAdmin = ensureAdminCatalog(db)
-      if (dirtyStaff || dirtyCases || dirtyAdmin) saveDb(db)
+      if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin) saveDb(db)
       else writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8')
       const counts = await getCollectionCounts()
       console.log('[MongoDB] Collections loaded:', counts)
@@ -1390,8 +1479,9 @@ async function initDatabase() {
   db.contacts = db.contacts || []
   const dirtyStaff = ensureStaffCodes(db)
   const dirtyCases = ensureCaseLocations(db)
+  const dirtyMulti = ensureMultiCourtSearchCases(db)
   const dirtyAdmin = ensureAdminCatalog(db)
-  if (dirtyStaff || dirtyCases || dirtyAdmin) saveDb(db)
+  if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin) saveDb(db)
   else writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8')
   console.log('[DB] Using local JSON:', DB_FILE)
 }
@@ -1623,7 +1713,7 @@ async function handler(req, res) {
         active: true,
         photo:
           body.photo ||
-          `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(body.name)}&backgroundColor=1a6b75`,
+          `https://api.dicebear.com/9.x/initials/png?seed=${encodeURIComponent(body.name)}&backgroundColor=1a6b75`,
         permissions: defaultStaffPermissions(),
       }
       db.staff.push(staff)
@@ -1714,7 +1804,7 @@ async function handler(req, res) {
         bio: body.bio || '',
         photo:
           body.photo ||
-          `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(body.fullName)}&backgroundColor=0c2e33`,
+          `https://api.dicebear.com/9.x/initials/png?seed=${encodeURIComponent(body.fullName)}&backgroundColor=0c2e33`,
         yearsOfExperience: Number(body.yearsOfExperience) || 0,
         designation: 'অ্যাডভোকেট',
         publicProfileEnabled: body.publicProfileEnabled !== false,
@@ -1785,13 +1875,24 @@ async function handler(req, res) {
       const district = (url.searchParams.get('district') || '').trim()
       const courtType = (url.searchParams.get('courtType') || '').trim()
       const court = (url.searchParams.get('court') || '').trim()
-      if (!q) return json(res, 400, { error: 'মামলা নম্বর আবশ্যক।' }, req)
+      if (!normalized.ok && !rawQ) return json(res, 400, { error: 'মামলা নম্বর আবশ্যক।' }, req)
+      if (!normalized.ok) return json(res, 400, { error: normalized.error }, req)
       if (!division || !district) {
         return json(res, 400, { error: 'বিভাগ ও জেলা নির্বাচন আবশ্যক।' }, req)
       }
-      ensureCaseLocations(db)
+      const locDirty = ensureCaseLocations(db)
+      const multiDirty = ensureMultiCourtSearchCases(db)
+      if (locDirty || multiDirty) saveDb(db)
       const results = db.cases
-        .filter((c) => matchesPublicCaseSearch(c, { q, division, district, courtType, court }))
+        .filter((c) =>
+          matchesPublicCaseSearch(c, {
+            q: normalized.value,
+            division,
+            district,
+            courtType,
+            court,
+          }),
+        )
         .map((c) => publicCaseView(c))
       return json(res, 200, { data: results }, req)
     }
@@ -1825,6 +1926,7 @@ async function handler(req, res) {
       const meStaff = getStaffRecord(auth)
       const allowedWhenDisabled =
         (method === 'GET' && path === '/api/staff/me') ||
+        (method === 'PUT' && path === '/api/staff/me') ||
         (method === 'POST' && path === '/api/staff/me/leave') ||
         (method === 'DELETE' && path === '/api/staff/me')
       if (staffIsBlocked(meStaff) && !allowedWhenDisabled) {
@@ -2149,14 +2251,14 @@ async function handler(req, res) {
       const idx = db.cases.findIndex((x) => x.id === nextHearingMatch[1])
       if (idx < 0) return json(res, 404, { error: 'Case not found' }, req)
       const existing = db.cases[idx]
-      if (auth.role === 'LAWYER' && existing.ownerLawyerId !== auth.id) {
+      if (auth.role === 'LAWYER' && !lawyerCanAccessCase(existing, auth.id)) {
         return json(res, 403, { error: 'Forbidden' }, req)
       }
       if (auth.role === 'STAFF') {
         const staff = db.staff.find((s) => s.id === auth.id)
         const allowed =
           staff &&
-          existing.assignedStaffIds.includes(auth.id) &&
+          (existing.assignedStaffIds || []).includes(auth.id) &&
           (staff.permissions.editHearingDates || staff.permissions.editCases)
         if (!allowed) return json(res, 403, { error: 'Forbidden' }, req)
       }
@@ -2221,6 +2323,34 @@ async function handler(req, res) {
         },
         req,
       )
+    }
+
+    if (method === 'PUT' && path === '/api/staff/me') {
+      if (!auth || auth.role !== 'STAFF') return json(res, 403, { error: 'Forbidden' }, req)
+      const idx = db.staff.findIndex((x) => x.id === auth.id)
+      if (idx < 0) return json(res, 404, { error: 'Staff not found' }, req)
+      const body = await readBody(req)
+      if (body.photo && String(body.photo).length > 700000) {
+        return json(res, 400, { error: 'প্রোফাইল ছবি অনেক বড়। ছোট ছবি দিন।' }, req)
+      }
+      const current = db.staff[idx]
+      db.staff[idx] = {
+        ...current,
+        name: body.name != null ? String(body.name).trim() || current.name : current.name,
+        mobile: body.mobile != null ? String(body.mobile).trim() : current.mobile,
+        photo: body.photo != null ? String(body.photo) : current.photo,
+        id: current.id,
+        email: current.email,
+        staffCode: current.staffCode,
+        lawyerId: current.lawyerId,
+        permissions: current.permissions,
+        passwordHash: current.passwordHash,
+        active: current.active,
+        role: current.role,
+      }
+      saveDb(db)
+      const { passwordHash, ...safe } = db.staff[idx]
+      return json(res, 200, { data: safe }, req)
     }
 
     if (method === 'GET' && path === '/api/staff/lookup') {
@@ -2412,11 +2542,17 @@ async function handler(req, res) {
     }
 
     if (method === 'GET' && path === '/api/hearings') {
-      if (!auth) return json(res, 401, { error: 'Unauthorized' })
+      if (!auth) return json(res, 401, { error: 'Unauthorized' }, req)
       let list = []
-      if (auth.role === 'LAWYER') list = db.hearings.filter((h) => h.lawyerId === auth.id)
-      else list = db.hearings.filter((h) => h.responsibleStaffId === auth.id)
-      return json(res, 200, { data: list })
+      if (auth.role === 'LAWYER') {
+        const myCaseIds = new Set(
+          db.cases.filter((c) => lawyerCanAccessCase(c, auth.id)).map((c) => c.id),
+        )
+        list = db.hearings.filter((h) => h.lawyerId === auth.id || myCaseIds.has(h.caseId))
+      } else {
+        list = db.hearings.filter((h) => h.responsibleStaffId === auth.id)
+      }
+      return json(res, 200, { data: list }, req)
     }
 
     if (method === 'POST' && path === '/api/hearings') {
@@ -2548,6 +2684,9 @@ async function handler(req, res) {
       const idx = db.lawyers.findIndex((x) => x.id === auth.id)
       if (idx < 0) return json(res, 404, { error: 'Profile not found' })
       const body = await readBody(req)
+      if (body.photo && String(body.photo).length > 700000) {
+        return json(res, 400, { error: 'প্রোফাইল ছবি অনেক বড়। ছোট ছবি দিন।' }, req)
+      }
       db.lawyers[idx] = {
         ...db.lawyers[idx],
         ...body,
@@ -2560,9 +2699,12 @@ async function handler(req, res) {
     }
 
     if (method === 'GET' && path === '/api/dashboard/lawyer') {
-      if (!auth || auth.role !== 'LAWYER') return json(res, 403, { error: 'Forbidden' })
-      const myCases = db.cases.filter((c) => c.ownerLawyerId === auth.id)
-      const myHearings = db.hearings.filter((h) => h.lawyerId === auth.id)
+      if (!auth || auth.role !== 'LAWYER') return json(res, 403, { error: 'Forbidden' }, req)
+      // Same scope as GET /cases — owner / plaintiff / defendant counsel
+      const myCases = db.cases.filter((c) => lawyerCanAccessCase(c, auth.id))
+      const myHearings = db.hearings.filter(
+        (h) => h.lawyerId === auth.id || myCases.some((c) => c.id === h.caseId),
+      )
       const today = new Date().toISOString().slice(0, 10)
       return json(res, 200, {
         data: {
@@ -2573,7 +2715,7 @@ async function handler(req, res) {
           totalStaff: db.staff.filter((s) => s.lawyerId === auth.id && s.active).length,
           pendingTasks: db.tasks.filter((t) => t.lawyerId === auth.id && t.status !== 'Completed').length,
         },
-      })
+      }, req)
     }
 
     if (method === 'GET' && path === '/api/dashboard/staff') {

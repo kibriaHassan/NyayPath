@@ -24,6 +24,7 @@ export default function LawyerCasesPage() {
   const [court, setCourt] = useState('')
   const [type, setType] = useState('')
   const [staff, setStaff] = useState('')
+  const [onDate, setOnDate] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -60,10 +61,17 @@ export default function LawyerCasesPage() {
       if (status && c.status !== status) return false
       if (court && !c.courtName.toLowerCase().includes(court.toLowerCase())) return false
       if (type && c.caseType !== type) return false
-      if (staff && !c.assignedStaffIds.includes(staff)) return false
+      if (staff && !(c.assignedStaffIds || []).includes(staff)) return false
+      if (onDate) {
+        const day = onDate.slice(0, 10)
+        const dates = [c.nextHearingDate, c.filingDate, c.lastHearingDate].map((d) =>
+          String(d || '').slice(0, 10),
+        )
+        if (!dates.includes(day)) return false
+      }
       return true
     })
-  }, [list, q, status, court, type, staff])
+  }, [list, q, status, court, type, staff, onDate])
 
   return (
     <div className="space-y-6">
@@ -75,13 +83,63 @@ export default function LawyerCasesPage() {
             {myStaff.length === 0 ? ' · Staff নেই — নিজে পরিচালনা করছেন' : ''}
           </p>
         </div>
-        <Link to="/lawyer/cases/new">
-          <Button>Add New Case</Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setQ('')
+              setStatus('')
+              setCourt('')
+              setType('')
+              setStaff('')
+              setOnDate('')
+            }}
+          >
+            সব মামলা দেখুন
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={loading}
+            onClick={() => {
+              setQ('')
+              setStatus('')
+              setCourt('')
+              setType('')
+              setStaff('')
+              setOnDate('')
+              setLoading(true)
+              Promise.all([
+                api<{ data: Case[] }>('/cases').catch(() => ({ data: mockCases.filter(mine) })),
+                api<{ data: Staff[] }>('/staff').catch(() => ({
+                  data: staffMembers.filter((s) => s.lawyerId === user?.id),
+                })),
+              ])
+                .then(([caseRes, staffRes]) => {
+                  setList(caseRes.data || [])
+                  setMyStaff(staffRes.data || [])
+                })
+                .finally(() => setLoading(false))
+            }}
+          >
+            {loading ? 'লোড হচ্ছে…' : 'রিলোড'}
+          </Button>
+          <Link to="/lawyer/cases/new">
+            <Button>Add New Case</Button>
+          </Link>
+        </div>
       </div>
 
-      <div className="grid gap-3 rounded-xl border border-border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 rounded-xl border border-border bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-3">
         <Input label="Search" placeholder="নম্বর / শিরোনাম" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input
+          label="তারিখ"
+          type="date"
+          value={onDate}
+          onChange={(e) => setOnDate(e.target.value)}
+          hint="এই তারিখের শুনানি বা দাখিলের মামলা"
+        />
         <Select
           label="Status"
           value={status}

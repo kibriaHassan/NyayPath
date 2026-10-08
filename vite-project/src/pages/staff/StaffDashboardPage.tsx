@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   Briefcase,
   Calendar,
@@ -23,7 +23,13 @@ import {
   HearingBarsCard,
   ProgressRow,
 } from '@/components/dashboard/PremiumDashboardWidgets'
-import { cases, hearings, tasks, getLawyerById, getStaffById } from '@/data/mock'
+import {
+  cases as mockCases,
+  hearings as mockHearings,
+  tasks as mockTasks,
+  getLawyerById,
+  getStaffById,
+} from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
 import { isToday, isUpcoming } from '@/lib/utils'
 import { formatCourtDateHeading, needsNextHearingUpdate, parseDateKey } from '@/lib/courtCalendar'
@@ -31,7 +37,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { api } from '@/lib/api'
-import type { Case, Staff, StaffPermissions } from '@/types'
+import type { Case, Hearing, Staff, StaffPermissions, Task } from '@/types'
 
 const permissionHelp: { key: keyof StaffPermissions; label: string; desc: string; icon: typeof Eye }[] = [
   { key: 'viewCases', label: 'মামলা দেখা', desc: 'অ্যাসাইন করা মামলার তথ্য দেখুন', icon: Eye },
@@ -53,15 +59,17 @@ const BN_SHORT = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'ব
 
 export default function StaffDashboardPage() {
   const user = useAuthStore((s) => s.user)
+  const location = useLocation()
   const [staff, setStaff] = useState<Staff | null>(() => getStaffById(user?.id) || null)
   const [lawyerName, setLawyerName] = useState('')
   const [showCharts, setShowCharts] = useState(false)
-  const [assigned, setAssigned] = useState<Case[]>(() =>
-    cases.filter((c) => c.assignedStaffIds.includes(user?.id || '')),
-  )
+  const [assigned, setAssigned] = useState<Case[]>([])
+  const [myHearings, setMyHearings] = useState<Hearing[]>([])
+  const [myTasks, setMyTasks] = useState<Task[]>([])
 
   useEffect(() => {
     let cancelled = false
+    const sid = user?.id || ''
     api<{
       data: Staff & { lawyerName?: string; lawyerChamber?: string }
     }>('/staff/me')
@@ -76,20 +84,33 @@ export default function StaffDashboardPage() {
         const lawyer = getLawyerById(user?.lawyerId || local?.lawyerId)
         setLawyerName(lawyer?.fullName || '')
       })
+
+    Promise.all([
+      api<{ data: Case[] }>('/cases').catch(() => ({
+        data: mockCases.filter((c) => (c.assignedStaffIds || []).includes(sid)),
+      })),
+      api<{ data: Hearing[] }>('/hearings').catch(() => ({
+        data: mockHearings.filter((h) => h.responsibleStaffId === sid),
+      })),
+      api<{ data: Task[] }>('/tasks').catch(() => ({
+        data: mockTasks.filter((t) => t.assignedStaffId === sid),
+      })),
+    ]).then(([caseRes, hearingRes, taskRes]) => {
+      if (cancelled) return
+      setAssigned(caseRes.data || [])
+      setMyHearings(hearingRes.data || [])
+      setMyTasks(taskRes.data || [])
+    })
+
     return () => {
       cancelled = true
     }
-  }, [user?.id, user?.lawyerId])
+  }, [user?.id, user?.lawyerId, location.key])
 
-  useEffect(() => {
-    setAssigned(cases.filter((c) => c.assignedStaffIds.includes(user?.id || '')))
-  }, [user?.id])
-
-  const myHearings = hearings.filter((h) => h.responsibleStaffId === user?.id)
   const upcoming = myHearings.filter((h) => isUpcoming(h.hearingDate, 30) || isToday(h.hearingDate))
   const today = myHearings.filter((h) => isToday(h.hearingDate))
-  const pending = tasks.filter((t) => t.assignedStaffId === user?.id && t.status !== 'Completed')
-  const completed = tasks.filter((t) => t.assignedStaffId === user?.id && t.status === 'Completed')
+  const pending = myTasks.filter((t) => t.status !== 'Completed')
+  const completed = myTasks.filter((t) => t.status === 'Completed')
   const overdueCount = useMemo(
     () => assigned.filter((c) => needsNextHearingUpdate(c.nextHearingDate, c.status)).length,
     [assigned],

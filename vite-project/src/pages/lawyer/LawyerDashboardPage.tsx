@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   Briefcase,
   Calendar,
@@ -23,11 +23,12 @@ import {
   ProgressRow,
 } from '@/components/dashboard/PremiumDashboardWidgets'
 import { Badge } from '@/components/ui/Badge'
-import { cases, hearings, staffMembers, tasks } from '@/data/mock'
+import { cases as mockCases, hearings as mockHearings, staffMembers, tasks as mockTasks } from '@/data/mock'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { isToday, isUpcoming } from '@/lib/utils'
 import { formatCourtDateHeading, needsNextHearingUpdate, parseDateKey } from '@/lib/courtCalendar'
-import type { Case } from '@/types'
+import type { Case, Hearing, Staff, Task } from '@/types'
 
 function greetingBn() {
   const h = new Date().getHours()
@@ -38,21 +39,67 @@ function greetingBn() {
 
 const BN_SHORT = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি']
 
+function lawyerOwnsCase(c: Case, lawyerId?: string) {
+  if (!lawyerId) return false
+  return (
+    c.ownerLawyerId === lawyerId ||
+    c.plaintiffLawyerId === lawyerId ||
+    c.defendantLawyerId === lawyerId
+  )
+}
+
 export default function LawyerDashboardPage() {
   const user = useAuthStore((s) => s.user)
+  const location = useLocation()
   const [myCases, setMyCases] = useState<Case[]>([])
+  const [myHearings, setMyHearings] = useState<Hearing[]>([])
+  const [myStaff, setMyStaff] = useState<Staff[]>([])
+  const [myTasks, setMyTasks] = useState<Task[]>([])
   const [showCharts, setShowCharts] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setMyCases(cases.filter((c) => c.ownerLawyerId === user?.id))
-  }, [user?.id])
+    let cancelled = false
+    setLoading(true)
+    const lid = user?.id
+    Promise.all([
+      api<{ data: Case[] }>('/cases').catch(() => ({
+        data: mockCases.filter((c) => lawyerOwnsCase(c, lid)),
+      })),
+      api<{ data: Hearing[] }>('/hearings').catch(() => ({
+        data: mockHearings.filter((h) => h.lawyerId === lid),
+      })),
+      api<{ data: Staff[] }>('/staff').catch(() => ({
+        data: staffMembers.filter((s) => s.lawyerId === lid && s.active),
+      })),
+      api<{ data: Task[] }>('/tasks').catch(() => ({
+        data: mockTasks.filter((t) => t.lawyerId === lid),
+      })),
+    ])
+      .then(([caseRes, hearingRes, staffRes, taskRes]) => {
+        if (cancelled) return
+        const cases = caseRes.data || []
+        setMyCases(cases)
+        const caseIds = new Set(cases.map((c) => c.id))
+        const hearings = (hearingRes.data || []).filter(
+          (h) => h.lawyerId === lid || caseIds.has(h.caseId),
+        )
+        setMyHearings(hearings)
+        setMyStaff((staffRes.data || []).filter((s) => s.active !== false))
+        setMyTasks(taskRes.data || [])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id, location.key])
 
-  const myStaff = staffMembers.filter((s) => s.lawyerId === user?.id && s.active)
-  const myHearings = hearings.filter((h) => h.lawyerId === user?.id)
   const upcoming = myHearings.filter((h) => isUpcoming(h.hearingDate, 30) || isToday(h.hearingDate))
   const today = myHearings.filter((h) => isToday(h.hearingDate))
-  const pendingTasks = tasks.filter((t) => t.lawyerId === user?.id && t.status !== 'Completed')
-  const completedTasks = tasks.filter((t) => t.lawyerId === user?.id && t.status === 'Completed')
+  const pendingTasks = myTasks.filter((t) => t.status !== 'Completed')
+  const completedTasks = myTasks.filter((t) => t.status === 'Completed')
   const activeCases = myCases.filter((c) => c.status === 'Active' || c.status === 'Hearing Scheduled')
   const closedCases = myCases.filter((c) => c.status === 'Closed' || c.status === 'Disposed')
   const overdueCount = useMemo(
@@ -96,7 +143,6 @@ export default function LawyerDashboardPage() {
         /* skip */
       }
     }
-    // Sun–Thu working days first for court calendar
     return [0, 1, 2, 3, 4].map((i) => ({ name: BN_SHORT[i], value: counts[i] }))
   }, [myHearings])
 
@@ -172,14 +218,15 @@ export default function LawyerDashboardPage() {
 
   return (
     <div className="space-y-6 pb-2">
-      {/* Hero greeting */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight text-ink md:text-3xl">
             {greetingBn()}, {firstName}!
           </h1>
           <p className="mt-1 max-w-xl text-sm text-muted">
-            আজ {today.length} টি শুনানি, {overdueCount} টি তারিখ আপডেট বাকি, এবং {pendingTasks.length} টি টাস্ক অপেক্ষমাণ।
+            {loading
+              ? 'ড্যাশবোর্ড লোড হচ্ছে…'
+              : `আজ ${today.length} টি শুনানি, ${overdueCount} টি তারিখ আপডেট বাকি, এবং ${pendingTasks.length} টি টাস্ক অপেক্ষমাণ।`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -205,7 +252,6 @@ export default function LawyerDashboardPage() {
         <DashboardPieCharts charts={charts} />
       ) : (
         <>
-          {/* KPI row */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <PremiumMetricCard
               title="মোট মামলা"
@@ -255,13 +301,11 @@ export default function LawyerDashboardPage() {
             <PremiumMetricCard title="Closed / Disposed" value={closedCases.length} icon={Briefcase} tone="ink" />
           </div>
 
-          {/* Analytics row */}
           <div className="grid gap-4 lg:grid-cols-2">
             <CasePipelineCard stages={pipeline} />
             <HearingBarsCard data={weekBars} />
           </div>
 
-          {/* Lists row */}
           <div className="grid gap-4 lg:grid-cols-2">
             <DashboardListCard title="সাম্প্রতিক মামলা" subtitle="নতুন ফাইলিং" actionLabel="সব দেখুন" actionTo="/lawyer/cases">
               <ul className="divide-y divide-border/70">
@@ -269,7 +313,7 @@ export default function LawyerDashboardPage() {
                   <li className="py-6 text-center text-sm text-muted">কোনো মামলা নেই</li>
                 )}
                 {recentCases.map((c) => {
-                  const initials = c.caseTitle
+                  const initials = (c.caseTitle || '—')
                     .split(' ')
                     .slice(0, 2)
                     .map((w) => w[0])

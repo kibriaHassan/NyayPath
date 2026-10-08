@@ -20,7 +20,7 @@ import {
 import { filterLawyersByPracticeType } from '@/data/mock'
 import { findDivisionByDistrict, matchesCourtType } from '@/lib/bdLocations'
 import { loadPublicLawyers } from '@/lib/publicLawyers'
-import { normalizeCaseNumber } from '@/lib/caseNumber'
+import { normalizeCaseNumber, toAsciiCaseNumberInput } from '@/lib/caseNumber'
 import { PRACTICE_TYPE_OPTIONS, type PracticeType } from '@/lib/practiceTypes'
 import { cn } from '@/lib/utils'
 import type { Lawyer } from '@/types'
@@ -195,11 +195,13 @@ export default function LandingPage() {
                 label="মামলা নম্বর"
                 placeholder="যেমন: 1/2026"
                 value={caseNumber}
-                onChange={(e) => setCaseNumber(e.target.value)}
+                onChange={(e) => setCaseNumber(toAsciiCaseNumberInput(e.target.value))}
                 onBlur={() => {
                   const n = normalizeCaseNumber(caseNumber)
                   if (n.ok) setCaseNumber(n.value)
                 }}
+                inputMode="text"
+                autoComplete="off"
                 required
               />
               <p className="text-xs text-muted">ফরম্যাট: 1/2026 (বছর ৪ সংখ্যা) — 1/26 নয়</p>

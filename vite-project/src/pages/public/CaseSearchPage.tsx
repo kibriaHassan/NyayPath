@@ -10,7 +10,7 @@ import {
 import { searchCases } from '@/data/mock'
 import { api } from '@/lib/api'
 import { COURT_TYPES } from '@/lib/bdLocations'
-import { normalizeCaseNumber } from '@/lib/caseNumber'
+import { normalizeCaseNumber, toAsciiCaseNumberInput } from '@/lib/caseNumber'
 import { cn } from '@/lib/utils'
 import type { Case } from '@/types'
 
@@ -149,7 +149,9 @@ export default function CaseSearchPage() {
             label="মামলা নম্বর"
             placeholder="যেমন: 123/2026"
             value={caseNumber}
-            onChange={(e) => setCaseNumber(e.target.value)}
+            onChange={(e) => setCaseNumber(toAsciiCaseNumberInput(e.target.value))}
+            inputMode="text"
+            autoComplete="off"
             required
           />
           <Button type="submit" className="w-full md:w-auto" disabled={!loc.division || !loc.district}>

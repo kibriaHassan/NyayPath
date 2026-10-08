@@ -24,14 +24,18 @@ export function buildCaseMatchKey(parts: {
   ].join('|')
 }
 
-export function normalizeCaseNumber(raw: string): CaseNumberResult {
-  const input = String(raw || '').trim().replace(/\s+/g, '')
-  if (!input) return { ok: false, error: 'মামলা নম্বর আবশ্যক।' }
-
-  // 1/2026 | 1-2026 | ১/২০২৬ (ascii digits preferred after normalize)
-  const ascii = input
+/** বাংলা সংখ্যা → ইংরেজি; স্ল্যাশ নরমালাইজ — ইনপুটে লাইভ ব্যবহার */
+export function toAsciiCaseNumberInput(raw: string): string {
+  return String(raw || '')
     .replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)))
-    .replace(/[\/\-–—]/g, '/')
+    .replace(/[\/\-–—．.٫]/g, '/')
+    .replace(/\s+/g, '')
+    .replace(/[^\d/]/g, '')
+}
+
+export function normalizeCaseNumber(raw: string): CaseNumberResult {
+  const ascii = toAsciiCaseNumberInput(raw)
+  if (!ascii) return { ok: false, error: 'মামলা নম্বর আবশ্যক।' }
 
   const m = ascii.match(/^(\d{1,6})\/(\d{2}|\d{4})$/)
   if (!m) {
