@@ -1345,6 +1345,15 @@ function toDateKey(date) {
   return `${y}-${m}-${d}`
 }
 
+function hearingDayKey(value) {
+  if (!value) return ''
+  const raw = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw.slice(0, 10)
+  return toDateKey(parsed)
+}
+
 function addDays(date, days) {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   d.setDate(d.getDate() + days)
@@ -1950,7 +1959,22 @@ async function handler(req, res) {
       } else if (auth.role === 'STAFF') {
         list = db.cases.filter((c) => (c.assignedStaffIds || []).includes(auth.id))
       } else return json(res, 403, { error: 'Forbidden' }, req)
-      return json(res, 200, { data: list }, req)
+      const sorted = [...list].sort((a, b) => {
+        const da = hearingDayKey(a.nextHearingDate)
+        const db = hearingDayKey(b.nextHearingDate)
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        return da.localeCompare(db)
+      })
+      return json(res, 200, {
+        data: sorted.map((c) => ({
+          ...c,
+          nextHearingDate: hearingDayKey(c.nextHearingDate),
+          lastHearingDate: hearingDayKey(c.lastHearingDate),
+          filingDate: hearingDayKey(c.filingDate) || c.filingDate || '',
+        })),
+      }, req)
     }
 
     // Lookup existing case before/during entry (same number + location)
@@ -2903,6 +2927,14 @@ async function handler(req, res) {
             c.district?.toLowerCase().includes(q),
         )
       }
+      list.sort((a, b) => {
+        const da = hearingDayKey(a.nextHearingDate)
+        const db = hearingDayKey(b.nextHearingDate)
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        return da.localeCompare(db)
+      })
       return json(res, 200, {
         data: list.map((c) => ({
           id: c.id,

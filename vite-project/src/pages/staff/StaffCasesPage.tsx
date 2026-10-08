@@ -2,11 +2,12 @@ import { cases } from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
 import { CaseCard } from '@/components/cases/CaseCard'
 import { getStaffById } from '@/data/mock'
+import { sortByNextHearing } from '@/lib/courtCalendar'
 
 export default function StaffCasesPage() {
   const user = useAuthStore((s) => s.user)
   const staff = getStaffById(user?.id)
-  const assigned = cases.filter((c) => c.assignedStaffIds.includes(user?.id || ''))
+  const assigned = sortByNextHearing(cases.filter((c) => c.assignedStaffIds.includes(user?.id || '')))
 
   return (
     <div className="space-y-6">

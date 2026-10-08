@@ -7,6 +7,7 @@ import { CaseTable } from '@/components/cases/CaseTable'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { dateKeyFromValue, sortByNextHearing } from '@/lib/courtCalendar'
 import type { Case, Staff } from '@/types'
 
 export default function LawyerCasesPage() {
@@ -63,9 +64,9 @@ export default function LawyerCasesPage() {
       if (type && c.caseType !== type) return false
       if (staff && !(c.assignedStaffIds || []).includes(staff)) return false
       if (onDate) {
-        const day = onDate.slice(0, 10)
+        const day = dateKeyFromValue(onDate)
         const dates = [c.nextHearingDate, c.filingDate, c.lastHearingDate].map((d) =>
-          String(d || '').slice(0, 10),
+          dateKeyFromValue(d),
         )
         if (!dates.includes(day)) return false
       }
@@ -73,13 +74,15 @@ export default function LawyerCasesPage() {
     })
   }, [list, q, status, court, type, staff, onDate])
 
+  const ordered = useMemo(() => sortByNextHearing(filtered), [filtered])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold">My Cases</h1>
           <p className="text-sm text-muted">
-            {loading ? 'লোড হচ্ছে…' : `${filtered.length} টি মামলা`}
+            {loading ? 'লোড হচ্ছে…' : `${ordered.length} টি মামলা`}
             {myStaff.length === 0 ? ' · Staff নেই — নিজে পরিচালনা করছেন' : ''}
           </p>
         </div>
@@ -167,12 +170,12 @@ export default function LawyerCasesPage() {
         />
       </div>
 
-      {!loading && filtered.length === 0 ? (
+      {!loading && ordered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-white px-4 py-12 text-center text-sm text-muted">
           কোনো মামলা নেই। <Link to="/lawyer/cases/new" className="font-semibold text-teal hover:underline">Add New Case</Link> দিয়ে যোগ করুন।
         </div>
       ) : (
-        <CaseTable cases={filtered} />
+        <CaseTable cases={ordered} />
       )}
     </div>
   )

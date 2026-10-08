@@ -11,6 +11,7 @@ import { api } from '../api/client'
 import { useSettingsStore, useT } from '../store/settingsStore'
 import {
   casesForCalendarDay,
+  sortByNextHearing,
   formatCourtDateHeading,
   isCourtHoliday,
   missingEntryDays,
@@ -106,7 +107,10 @@ export function CaseCalendarScreen({ navigation }: Props) {
   const month = cursor.getMonth()
   const cells = useMemo(() => monthCells(year, month), [year, month])
   const redDays = useMemo(() => missingEntryDays(cases, today), [cases, today])
-  const bucket = useMemo(() => casesForCalendarDay(cases, selected, today), [cases, selected, today])
+  const bucket = useMemo(() => {
+    const day = casesForCalendarDay(cases, selected, today)
+    return { ...day, all: sortByNextHearing(day.all), entered: sortByNextHearing(day.entered), missing: sortByNextHearing(day.missing) }
+  }, [cases, selected, today])
   const total = bucket.all.length
   const enteredPct = total ? Math.round((bucket.entered.length / total) * 100) : 0
   const missingPct = total ? Math.round((bucket.missing.length / total) * 100) : 0

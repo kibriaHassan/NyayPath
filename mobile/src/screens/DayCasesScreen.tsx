@@ -20,6 +20,7 @@ import {
   isCourtHoliday,
   parseDateKey,
   partitionDayCases,
+  sortByNextHearing,
   type CaseHearingRow,
   type DayCaseFilter,
 } from '../utils/courtCalendar'
@@ -80,16 +81,17 @@ export function DayCasesScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       setNowTick(new Date())
+      if (route.params?.filter) setFilter(route.params.filter)
       void load()
-    }, [load]),
+    }, [load, route.params?.filter]),
   )
 
   const parts = useMemo(() => partitionDayCases(list, nowTick), [list, nowTick])
 
   const visible = useMemo(() => {
-    if (filter === 'today') return parts.todayCases
-    if (filter === 'next') return parts.nextCases
-    return parts.pendingCases
+    const rows =
+      filter === 'today' ? parts.todayCases : filter === 'next' ? parts.nextCases : parts.pendingCases
+    return sortByNextHearing(rows)
   }, [filter, parts])
 
   const subtitle =

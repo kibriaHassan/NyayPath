@@ -31,8 +31,7 @@ import {
   getStaffById,
 } from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
-import { isToday, isUpcoming } from '@/lib/utils'
-import { formatCourtDateHeading, needsNextHearingUpdate, parseDateKey } from '@/lib/courtCalendar'
+import { activeCourtDays, dateKeyFromValue, formatCourtDateHeading, isSameDateKey, needsNextHearingUpdate, parseDateKey, sortByNextHearing } from '@/lib/courtCalendar'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -97,7 +96,7 @@ export default function StaffDashboardPage() {
       })),
     ]).then(([caseRes, hearingRes, taskRes]) => {
       if (cancelled) return
-      setAssigned(caseRes.data || [])
+      setAssigned(sortByNextHearing(caseRes.data || []))
       setMyHearings(hearingRes.data || [])
       setMyTasks(taskRes.data || [])
     })
@@ -107,8 +106,19 @@ export default function StaffDashboardPage() {
     }
   }, [user?.id, user?.lawyerId, location.key])
 
-  const upcoming = myHearings.filter((h) => isUpcoming(h.hearingDate, 30) || isToday(h.hearingDate))
-  const today = myHearings.filter((h) => isToday(h.hearingDate))
+  const court = useMemo(() => activeCourtDays(), [])
+  const today = useMemo(
+    () => assigned.filter((c) => isSameDateKey(c.nextHearingDate, court.primaryKey)),
+    [assigned, court],
+  )
+  const upcoming = useMemo(
+    () =>
+      assigned.filter((c) => {
+        const key = dateKeyFromValue(c.nextHearingDate)
+        return Boolean(key && key > court.primaryKey)
+      }),
+    [assigned, court],
+  )
   const pending = myTasks.filter((t) => t.status !== 'Completed')
   const completed = myTasks.filter((t) => t.status === 'Completed')
   const overdueCount = useMemo(
@@ -194,7 +204,7 @@ export default function StaffDashboardPage() {
         title: 'শুনানি ওভারভিউ',
         data: [
           { name: 'আজকের শুনানি', value: today.length, color: '#b7791f' },
-          { name: 'আসন্ন শুনানি', value: Math.max(upcoming.length - today.length, 0), color: '#2563eb' },
+          { name: 'আসন্ন শুনানি', value: upcoming.length, color: '#2563eb' },
           { name: 'তারিখ এন্ট্রি বাকি', value: overdueCount, color: '#b42318' },
         ],
       },

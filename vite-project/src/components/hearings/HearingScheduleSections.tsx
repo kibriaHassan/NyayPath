@@ -16,14 +16,13 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import {
+  activeCourtDays,
   formatCourtDateHeading,
-  getNextWorkingDay,
   HEARING_PURPOSE_OPTIONS,
   isCourtHoliday,
   isSameDateKey,
   needsNextHearingUpdate,
-  nextWorkingDayKey,
-  todayKey,
+  sortByNextHearing,
 } from '@/lib/courtCalendar'
 import { cases as mockCases, getStaffById } from '@/data/mock'
 import { cn } from '@/lib/utils'
@@ -79,7 +78,9 @@ function CaseHearingCard({
       </div>
       {item.nextHearingPurpose && (
         <p className="mt-3 rounded-lg bg-slate-panel px-3 py-2 text-sm text-ink">
-          <span className="text-muted">আজকের / নির্ধারিত কাজ: </span>
+          <span className="text-muted">
+            {tone === 'today' ? 'আজকের কাজ: ' : 'নির্ধারিত কাজ: '}
+          </span>
           <strong>{item.nextHearingPurpose}</strong>
         </p>
       )}
@@ -201,31 +202,26 @@ export function HearingScheduleSections({
   mode = 'full',
 }: Props) {
   const [list, setList] = useState(cases)
-  const today = todayKey()
-  const nextDay = nextWorkingDayKey()
+  const court = activeCourtDays()
+  const today = court.primaryKey
+  const nextDay = court.secondaryKey
   const todayMeta = formatCourtDateHeading(today)
   const nextMeta = formatCourtDateHeading(nextDay)
-  const nextDateObj = getNextWorkingDay()
-  const todayDateObj = new Date()
-  const todayIsHoliday = isCourtHoliday(todayDateObj)
-  const skippedWeekend =
-    nextDateObj.getDay() === 0 &&
-    (todayDateObj.getDay() === 4 || todayDateObj.getDay() === 5 || todayDateObj.getDay() === 6)
 
   useEffect(() => {
     setList(cases)
   }, [cases])
 
   const todayCases = useMemo(
-    () => list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, today)),
+    () => sortByNextHearing(list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, today))),
     [list, today],
   )
   const nextCases = useMemo(
-    () => list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, nextDay)),
+    () => sortByNextHearing(list.filter((c) => c.nextHearingDate && isSameDateKey(c.nextHearingDate, nextDay))),
     [list, nextDay],
   )
   const overdueCases = useMemo(
-    () => list.filter((c) => needsNextHearingUpdate(c.nextHearingDate, c.status)),
+    () => sortByNextHearing(list.filter((c) => needsNextHearingUpdate(c.nextHearingDate, c.status))),
     [list],
   )
 
@@ -265,10 +261,10 @@ export function HearingScheduleSections({
 
   return (
     <div className="space-y-6">
-      {todayIsHoliday && (
+      {court.holiday && (
         <div className="rounded-xl border border-bronze/30 bg-sand/80 px-4 py-3 text-sm text-ink">
-          আজ <strong>{todayMeta.weekday}</strong> — আদালত সাপ্তাহিক ছুটি। পরবর্তী কর্মদিবস:{' '}
-          <strong>{nextMeta.full}</strong>
+          আজ আদালত সাপ্তাহিক ছুটি। আগামী কর্মদিবস <strong>{todayMeta.full}</strong>, তার পরের কর্মদিবস{' '}
+          <strong>{nextMeta.full}</strong>।
         </div>
       )}
 
@@ -280,7 +276,9 @@ export function HearingScheduleSections({
               <Sunrise className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-warning">আজকের মামলা</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-warning">
+                {court.holiday ? 'আগামী কর্মদিবস' : 'আজকের মামলা'}
+              </p>
               <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">{todayMeta.full}</h2>
             </div>
           </div>
@@ -289,7 +287,9 @@ export function HearingScheduleSections({
         <div className="space-y-3 p-4 sm:p-5">
           {todayCases.length === 0 ? (
             <p className="rounded-xl border border-dashed border-border bg-white px-4 py-8 text-center text-sm text-muted">
-              আজকের জন্য কোনো নির্ধারিত শুনানি নেই।
+              {court.holiday
+                ? 'আগামী কর্মদিবসে কোনো নির্ধারিত শুনানি নেই।'
+                : 'আজকের জন্য কোনো নির্ধারিত শুনানি নেই।'}
             </p>
           ) : (
             todayCases.map((c) => (
@@ -307,13 +307,11 @@ export function HearingScheduleSections({
               <CalendarDays className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-teal">পরবর্তী কর্মদিবস</p>
-              <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">{nextMeta.full}</h2>
-              <p className="mt-0.5 text-xs text-muted">
-                {skippedWeekend
-                  ? 'শুক্রবার ও শনিবার আদালত বন্ধ — তাই পরবর্তী দিন হিসেবে রবিবার দেখানো হচ্ছে।'
-                  : 'শুক্র–শনি বাদ দিয়ে পরবর্তী আদালতের কর্মদিবস।'}
+              <p className="text-xs font-semibold uppercase tracking-wide text-teal">
+                {court.holiday ? 'তার পরের কর্মদিবস' : 'পরবর্তী কর্মদিবস'}
               </p>
+              <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">{nextMeta.full}</h2>
+              <p className="mt-0.5 text-xs text-muted">শুক্র–শনি বাদ দিয়ে পরবর্তী আদালতের কর্মদিবস।</p>
             </div>
           </div>
           <Badge variant="teal">{nextCases.length} টি মামলা</Badge>

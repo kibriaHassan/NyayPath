@@ -85,6 +85,21 @@ export function todayKey(from: Date = new Date()) {
   return toDateKey(startOfDay(from))
 }
 
+/** On Fri/Sat the court day in effect is the next open day, so those cases sit in “today”. */
+export function activeCourtDays(from: Date = new Date()) {
+  const start = startOfDay(from)
+  const holiday = isCourtHoliday(start)
+  const primary = holiday ? getNextWorkingDay(start) : start
+  const secondary = getNextWorkingDay(primary)
+  return {
+    holiday,
+    primary,
+    secondary,
+    primaryKey: toDateKey(primary),
+    secondaryKey: toDateKey(secondary),
+  }
+}
+
 export function formatCourtDateHeading(date: Date | string) {
   const d = typeof date === 'string' ? parseDateKey(date) : date
   const weekday = BN_WEEKDAYS[d.getDay()]
@@ -99,12 +114,37 @@ export function formatCourtDateHeading(date: Date | string) {
   }
 }
 
+/** Calendar day in local time. Date-only strings stay as written; timestamps use local day. */
+export function dateKeyFromValue(value?: string | null) {
+  if (!value) return ''
+  const raw = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw.slice(0, 10)
+  return toDateKey(parsed)
+}
+
+export function compareNextHearingDate(a?: string | null, b?: string | null) {
+  const da = dateKeyFromValue(a)
+  const db = dateKeyFromValue(b)
+  if (!da && !db) return 0
+  if (!da) return 1
+  if (!db) return -1
+  return da.localeCompare(db)
+}
+
+export function sortByNextHearing<T extends { nextHearingDate?: string | null }>(list: T[]) {
+  return [...list].sort((a, b) => compareNextHearingDate(a.nextHearingDate, b.nextHearingDate))
+}
+
 export function isSameDateKey(a: string, b: string) {
-  return a.slice(0, 10) === b.slice(0, 10)
+  return dateKeyFromValue(a) === dateKeyFromValue(b)
 }
 
 export function isPastDate(date: string, relativeTo: Date = new Date()) {
-  return startOfDay(parseDateKey(date)).getTime() < startOfDay(relativeTo).getTime()
+  const key = dateKeyFromValue(date)
+  if (!key) return false
+  return key < toDateKey(startOfDay(relativeTo))
 }
 
 export function isClosedCaseStatus(status: string) {

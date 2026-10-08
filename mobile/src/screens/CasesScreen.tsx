@@ -14,6 +14,7 @@ import { AppMenuButton } from '../components/nav/AppDrawer'
 import { api, API_BASE, ApiError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
+import { sortByNextHearing } from '../utils/courtCalendar'
 import type { LawyerTabParamList, StaffTabParamList } from '../navigation/types'
 
 type CaseItem = {
@@ -35,7 +36,7 @@ type CaseItem = {
 type StaffRow = { id: string; name: string; staffCode?: string; active?: boolean }
 
 function onDate(value: string | undefined, day: string) {
-  return Boolean(value && value.slice(0, 10) === day)
+  return Boolean(value && (value.slice(0, 10) === day || value.startsWith(day)))
 }
 
 type Props =
@@ -131,6 +132,8 @@ export function CasesScreen({ navigation }: Props) {
     })
   }, [list, applied])
 
+  const ordered = useMemo(() => sortByNextHearing(filtered), [filtered])
+
   const filtersOn = Boolean(applied.name.trim() || applied.number.trim() || applied.date.trim() || applied.staffId)
 
   const openFilters = () => {
@@ -175,7 +178,7 @@ export function CasesScreen({ navigation }: Props) {
         </View>
         {filtersOn ? (
           <Text style={{ color: c.textMuted, fontSize: 12, marginBottom: 8 }}>
-            {filtered.length} / {list.length}
+            {ordered.length} / {list.length}
           </Text>
         ) : null}
         {error ? (
@@ -201,7 +204,7 @@ export function CasesScreen({ navigation }: Props) {
         ) : null}
       </View>
       <FlatList
-        data={filtered}
+        data={ordered}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl

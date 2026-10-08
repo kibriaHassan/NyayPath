@@ -26,8 +26,7 @@ import { Badge } from '@/components/ui/Badge'
 import { cases as mockCases, hearings as mockHearings, staffMembers, tasks as mockTasks } from '@/data/mock'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
-import { isToday, isUpcoming } from '@/lib/utils'
-import { formatCourtDateHeading, needsNextHearingUpdate, parseDateKey } from '@/lib/courtCalendar'
+import { activeCourtDays, compareNextHearingDate, dateKeyFromValue, formatCourtDateHeading, isSameDateKey, needsNextHearingUpdate, parseDateKey, sortByNextHearing } from '@/lib/courtCalendar'
 import type { Case, Hearing, Staff, Task } from '@/types'
 
 function greetingBn() {
@@ -78,7 +77,7 @@ export default function LawyerDashboardPage() {
     ])
       .then(([caseRes, hearingRes, staffRes, taskRes]) => {
         if (cancelled) return
-        const cases = caseRes.data || []
+        const cases = sortByNextHearing(caseRes.data || [])
         setMyCases(cases)
         const caseIds = new Set(cases.map((c) => c.id))
         const hearings = (hearingRes.data || []).filter(
@@ -96,8 +95,19 @@ export default function LawyerDashboardPage() {
     }
   }, [user?.id, location.key])
 
-  const upcoming = myHearings.filter((h) => isUpcoming(h.hearingDate, 30) || isToday(h.hearingDate))
-  const today = myHearings.filter((h) => isToday(h.hearingDate))
+  const court = useMemo(() => activeCourtDays(), [])
+  const today = useMemo(
+    () => myCases.filter((c) => isSameDateKey(c.nextHearingDate, court.primaryKey)),
+    [myCases, court],
+  )
+  const upcoming = useMemo(
+    () =>
+      myCases.filter((c) => {
+        const key = dateKeyFromValue(c.nextHearingDate)
+        return Boolean(key && key > court.primaryKey)
+      }),
+    [myCases, court],
+  )
   const pendingTasks = myTasks.filter((t) => t.status !== 'Completed')
   const completedTasks = myTasks.filter((t) => t.status === 'Completed')
   const activeCases = myCases.filter((c) => c.status === 'Active' || c.status === 'Hearing Scheduled')
@@ -149,7 +159,7 @@ export default function LawyerDashboardPage() {
   const recentCases = useMemo(
     () =>
       [...myCases]
-        .sort((a, b) => (b.filingDate || '').localeCompare(a.filingDate || ''))
+        .sort((a, b) => compareNextHearingDate(a.nextHearingDate, b.nextHearingDate))
         .slice(0, 5),
     [myCases],
   )
@@ -186,7 +196,7 @@ export default function LawyerDashboardPage() {
         subtitle: 'আজ / আসন্ন / তারিখ বাকি',
         data: [
           { name: 'আজকের শুনানি', value: today.length, color: '#b7791f' },
-          { name: 'আসন্ন শুনানি', value: Math.max(upcoming.length - today.length, 0), color: '#2563eb' },
+          { name: 'আসন্ন শুনানি', value: upcoming.length, color: '#2563eb' },
           { name: 'তারিখ এন্ট্রি বাকি', value: overdueCount, color: '#b42318' },
         ],
       },
