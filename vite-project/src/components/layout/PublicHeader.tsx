@@ -1,22 +1,54 @@
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Menu, Scale, X } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
+import { useLandingLang, type LandingKey } from '@/lib/landingLang'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
 
-const links = [
-  { to: '/', label: 'Home' },
-  { to: '/lawyers', label: 'Find a Lawyer' },
-  { to: '/cases/search', label: 'Case Search' },
-  { to: '/about', label: 'About' },
-  { to: '/contact', label: 'Contact' },
+const links: { to: string; key: LandingKey; fallback: string }[] = [
+  { to: '/', key: 'home', fallback: 'Home' },
+  { to: '/lawyers', key: 'findLawyer', fallback: 'Find a Lawyer' },
+  { to: '/cases/search', key: 'caseSearch', fallback: 'Case Search' },
+  { to: '/about', key: 'about', fallback: 'About' },
+  { to: '/contact', key: 'contact', fallback: 'Contact' },
 ]
+
+function LangSwitch({ lang, setLang }: { lang: 'bn' | 'en'; setLang: (lang: 'bn' | 'en') => void }) {
+  return (
+    <div className="flex rounded-full bg-[#e7f0ee] p-1 text-xs font-semibold">
+      <button
+        type="button"
+        onClick={() => setLang('bn')}
+        className={cn(
+          'rounded-full px-3 py-1.5 transition',
+          lang === 'bn' ? 'bg-white text-[#245e66] shadow-sm' : 'text-[#5d7572]',
+        )}
+      >
+        বাংলা
+      </button>
+      <button
+        type="button"
+        onClick={() => setLang('en')}
+        className={cn(
+          'rounded-full px-3 py-1.5 transition',
+          lang === 'en' ? 'bg-white text-[#245e66] shadow-sm' : 'text-[#5d7572]',
+        )}
+      >
+        English
+      </button>
+    </div>
+  )
+}
 
 export function PublicHeader() {
   const [open, setOpen] = useState(false)
   const user = useAuthStore((s) => s.user)
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const { lang, setLang, t } = useLandingLang()
+  const onLanding = pathname === '/'
+  const label = (key: LandingKey, fallback: string) => (onLanding ? t(key) : fallback)
 
   const dashboardPath =
     user?.role === 'ADMIN'
@@ -52,29 +84,32 @@ export function PublicHeader() {
                 )
               }
             >
-              {link.label}
+              {label(link.key, link.fallback)}
             </NavLink>
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
+        <div className="flex items-center gap-2">
+          {onLanding ? <LangSwitch lang={lang} setLang={setLang} /> : null}
+          <div className="hidden items-center gap-2 lg:flex">
           {dashboardPath ? (
             <Button variant="outline" size="sm" onClick={() => navigate(dashboardPath)}>
-              Dashboard
+              {label('dashboard', 'Dashboard')}
             </Button>
           ) : (
             <>
               <Button variant="ghost" size="sm" onClick={() => navigate('/login')}>
-                Login
+                {label('login', 'Login')}
               </Button>
               <Button size="sm" variant="outline" onClick={() => navigate('/register/staff')}>
-                Staff Register
+                {label('staffRegister', 'Staff Register')}
               </Button>
               <Button size="sm" variant="bronze" onClick={() => navigate('/register')}>
-                Register as Lawyer
+                {label('lawyerRegister', 'Register as Lawyer')}
               </Button>
             </>
           )}
+          </div>
         </div>
 
         <button
@@ -97,7 +132,7 @@ export function PublicHeader() {
           />
           <div className="absolute right-0 top-0 flex h-full w-[min(100%,20rem)] flex-col bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-4">
-              <span className="font-display text-lg font-semibold">Menu</span>
+              <span className="font-display text-lg font-semibold">{label('menu', 'Menu')}</span>
               <button type="button" onClick={() => setOpen(false)} aria-label="Close">
                 <X className="h-5 w-5" />
               </button>
@@ -111,25 +146,26 @@ export function PublicHeader() {
                   onClick={() => setOpen(false)}
                   className="rounded-lg px-3 py-3 text-sm font-medium hover:bg-mist"
                 >
-                  {link.label}
+                  {label(link.key, link.fallback)}
                 </NavLink>
               ))}
             </nav>
             <div className="mt-auto space-y-2 border-t border-border p-4">
+              {onLanding ? <LangSwitch lang={lang} setLang={setLang} /> : null}
               {dashboardPath ? (
                 <Button fullWidth onClick={() => { setOpen(false); navigate(dashboardPath) }}>
-                  Dashboard
+                  {label('dashboard', 'Dashboard')}
                 </Button>
               ) : (
                 <>
                   <Button fullWidth variant="outline" onClick={() => { setOpen(false); navigate('/login') }}>
-                    Login
+                    {label('login', 'Login')}
                   </Button>
                   <Button fullWidth variant="outline" onClick={() => { setOpen(false); navigate('/register/staff') }}>
-                    Staff Register
+                    {label('staffRegister', 'Staff Register')}
                   </Button>
                   <Button fullWidth variant="bronze" onClick={() => { setOpen(false); navigate('/register') }}>
-                    Register as Lawyer
+                    {label('lawyerRegister', 'Register as Lawyer')}
                   </Button>
                 </>
               )}

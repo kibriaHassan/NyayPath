@@ -5,7 +5,15 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { inferPracticeType, practiceTypeLabel } from '@/lib/practiceTypes'
 
-export function LawyerCard({ lawyer }: { lawyer: Lawyer }) {
+export function LawyerCard({
+  lawyer,
+  yearsLabel = 'বছরের অভিজ্ঞতা',
+  profileLabel = 'View Profile',
+}: {
+  lawyer: Lawyer
+  yearsLabel?: string
+  profileLabel?: string
+}) {
   const practiceType = lawyer.practiceType || inferPracticeType(lawyer.practiceAreas)
 
   return (
@@ -49,14 +57,14 @@ export function LawyerCard({ lawyer }: { lawyer: Lawyer }) {
         </li>
         <li className="flex items-center gap-2">
           <Briefcase className="h-4 w-4 text-teal" />
-          {lawyer.yearsOfExperience} বছরের অভিজ্ঞতা
+          {lawyer.yearsOfExperience} {yearsLabel}
         </li>
       </ul>
 
       <div className="mt-auto pt-5">
         <Link to={`/lawyers/${lawyer.id}`}>
           <Button variant="outline" fullWidth size="sm">
-            View Profile
+            {profileLabel}
           </Button>
         </Link>
       </div>

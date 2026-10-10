@@ -1,19 +1,22 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import type { UserRole } from '@/types'
+import { LandingLangProvider } from '@/lib/landingLang'
 import { PublicFooter } from './PublicFooter'
 import { PublicHeader } from './PublicHeader'
 import { DashboardLayout, adminNav, lawyerNav, staffNav } from './DashboardLayout'
 
 export function PublicLayout() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <PublicHeader />
-      <main className="flex-1">
-        <Outlet />
-      </main>
-      <PublicFooter />
-    </div>
+    <LandingLangProvider>
+      <div className="flex min-h-screen flex-col">
+        <PublicHeader />
+        <main className="flex-1">
+          <Outlet />
+        </main>
+        <PublicFooter />
+      </div>
+    </LandingLangProvider>
   )
 }
 
