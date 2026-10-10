@@ -179,6 +179,7 @@ export type CaseHearingRow = {
   lastHearingDate?: string
   district?: string
   division?: string
+  assignedStaffIds?: string[]
 }
 
 function dayOf(value?: string) {

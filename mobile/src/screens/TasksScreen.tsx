@@ -9,6 +9,7 @@ import { EmptyState, StatusPill } from '../components/ui/MenuRow'
 import { Screen } from '../components/ui/Screen'
 import { ScreenHeader } from '../components/ui/ScreenHeader'
 import { api } from '../api/client'
+import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
 import type { RootStackParamList } from '../navigation/types'
@@ -32,7 +33,9 @@ export function TasksScreen({ navigation }: Props) {
   const [list, setList] = useState<Task[]>([])
   const [title, setTitle] = useState('')
   const [refreshing, setRefreshing] = useState(false)
+  const { allow } = useStaffPerms()
   const isLawyer = user?.role === 'LAWYER'
+  const canUpdate = isLawyer || allow('manageTasks')
 
   const load = async () => {
     try {
@@ -109,7 +112,7 @@ export function TasksScreen({ navigation }: Props) {
               <StatusPill label={item.status || 'Pending'} />
               {item.priority ? <StatusPill label={item.priority} tone="warning" /> : null}
             </View>
-            {item.status !== 'Completed' ? (
+            {canUpdate && item.status !== 'Completed' ? (
               <Pressable onPress={() => void markDone(item.id)} style={{ marginTop: 10 }}>
                 <Text style={{ color: c.success, fontWeight: '800' }}>{t('markDone')}</Text>
               </Pressable>

@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useFocusEffect } from '@react-navigation/native'
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs'
 import { AppButton } from '../components/ui/AppButton'
@@ -43,7 +44,7 @@ type Props =
   | BottomTabScreenProps<LawyerTabParamList, 'Cases'>
   | BottomTabScreenProps<StaffTabParamList, 'Cases'>
 
-export function CasesScreen({ navigation }: Props) {
+export function CasesScreen({ navigation, route }: Props) {
   const t = useT()
   const c = useSettingsStore((s) => s.colors())
   const user = useAuthStore((s) => s.user)
@@ -61,6 +62,9 @@ export function CasesScreen({ navigation }: Props) {
   const [applied, setApplied] = useState({ name: '', number: '', date: '', staffId: '' })
   const [staff, setStaff] = useState<StaffRow[]>([])
   const isLawyer = user?.role === 'LAWYER'
+  const dark = useSettingsStore((s) => s.theme) === 'dark'
+  const unassignedRef = useRef(false)
+  unassignedRef.current = Boolean(route.params?.unassigned)
 
   const goLogin = () => {
     void logout()
@@ -93,7 +97,7 @@ export function CasesScreen({ navigation }: Props) {
     if (!isLawyer) return
     try {
       const res = await api<{ data: StaffRow[] }>('/staff')
-      setStaff((res.data || []).filter((row) => row.active !== false))
+      setStaff(res.data || [])
     } catch {
       setStaff([])
     }
@@ -101,9 +105,25 @@ export function CasesScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      if (unassignedRef.current) {
+        setApplied({ name: '', number: '', date: '', staffId: '__self__' })
+        setNameQ('')
+        setNumberQ('')
+        setDateQ('')
+        setStaffId('')
+        navigation.setParams({ unassigned: undefined })
+      }
       void load()
       void loadStaff()
-    }, [user?.id, token, isLawyer]),
+      return () => {
+        setFiltersOpen(false)
+        setNameQ('')
+        setNumberQ('')
+        setDateQ('')
+        setStaffId('')
+        setApplied({ name: '', number: '', date: '', staffId: '' })
+      }
+    }, [user?.id, token, isLawyer, navigation]),
   )
 
   const filtered = useMemo(() => {
@@ -127,7 +147,9 @@ export function CasesScreen({ navigation }: Props) {
       ) {
         return false
       }
-      if (applied.staffId && !(item.assignedStaffIds || []).includes(applied.staffId)) return false
+      if (applied.staffId === '__self__') {
+        if ((item.assignedStaffIds || []).length > 0) return false
+      } else if (applied.staffId && !(item.assignedStaffIds || []).includes(applied.staffId)) return false
       return true
     })
   }, [list, applied])
@@ -135,6 +157,19 @@ export function CasesScreen({ navigation }: Props) {
   const ordered = useMemo(() => sortByNextHearing(filtered), [filtered])
 
   const filtersOn = Boolean(applied.name.trim() || applied.number.trim() || applied.date.trim() || applied.staffId)
+
+  const activeChips = useMemo(() => {
+    const chips: { key: string; label: string }[] = []
+    if (applied.name.trim()) chips.push({ key: 'name', label: `${t('searchName')}: ${applied.name.trim()}` })
+    if (applied.number.trim()) chips.push({ key: 'number', label: `${t('caseNumber')}: ${applied.number.trim()}` })
+    if (applied.date.trim()) chips.push({ key: 'date', label: `${t('searchDate')}: ${applied.date.trim()}` })
+    if (applied.staffId === '__self__') chips.push({ key: 'staff', label: t('selfManaged') })
+    else if (applied.staffId) {
+      const row = staff.find((item) => item.id === applied.staffId)
+      chips.push({ key: 'staff', label: `${t('searchStaff')}: ${row?.name || applied.staffId}` })
+    }
+    return chips
+  }, [applied, staff, t])
 
   const openFilters = () => {
     setNameQ(applied.name)
@@ -166,20 +201,65 @@ export function CasesScreen({ navigation }: Props) {
           subtitle={isLawyer ? t('myCases') : t('assignedCases')}
           leading={<AppMenuButton />}
         />
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-          <AppButton title={t('filters')} onPress={openFilters} style={{ flex: 1 }} />
-          <AppButton
-            title={t('showAllCases')}
-            variant="outline"
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+          <Pressable
+            onPress={openFilters}
+            style={{
+              flex: 1,
+              minHeight: 46,
+              borderRadius: 14,
+              backgroundColor: c.primary,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <Ionicons name="options-outline" size={18} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{t('filters')}</Text>
+          </Pressable>
+          <Pressable
             onPress={showAll}
             disabled={!filtersOn}
-            style={{ flex: 1 }}
-          />
+            style={{
+              flex: 1,
+              minHeight: 46,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderColor: filtersOn ? c.primary : c.border,
+              backgroundColor: filtersOn ? c.primarySoft : c.card,
+              opacity: filtersOn ? 1 : 0.45,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <Ionicons name="albums-outline" size={18} color={filtersOn ? c.primary : c.textMuted} />
+            <Text style={{ color: filtersOn ? c.primary : c.textMuted, fontWeight: '800', fontSize: 14 }}>
+              {t('showAllCases')}
+            </Text>
+          </Pressable>
         </View>
-        {filtersOn ? (
-          <Text style={{ color: c.textMuted, fontSize: 12, marginBottom: 8 }}>
-            {ordered.length} / {list.length}
-          </Text>
+        {activeChips.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {activeChips.map((chip) => (
+              <View
+                key={chip.key}
+                style={{
+                  borderRadius: 999,
+                  backgroundColor: c.primarySoft,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                }}
+              >
+                <Text style={{ color: c.primary, fontSize: 12, fontWeight: '800' }}>{chip.label}</Text>
+              </View>
+            ))}
+            <Text style={{ color: c.textMuted, fontSize: 12, fontWeight: '700', alignSelf: 'center' }}>
+              {ordered.length}/{list.length}
+            </Text>
+          </View>
         ) : null}
         {error ? (
           <AppCard style={{ marginBottom: 8, borderColor: c.danger }}>
@@ -221,7 +301,12 @@ export function CasesScreen({ navigation }: Props) {
         ListEmptyComponent={
           <EmptyState text={needsLogin ? t('sessionExpired') : error ? t('retry') : t('emptyCases')} />
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const names = (item.assignedStaffIds || [])
+            .map((id) => staff.find((row) => row.id === id)?.name || (id === user?.id ? user?.name : ''))
+            .filter(Boolean)
+          const withStaff = names.length > 0
+          return (
           <Pressable
             onPress={() =>
               navigation.getParent()?.navigate('CaseDetails', {
@@ -230,7 +315,18 @@ export function CasesScreen({ navigation }: Props) {
               })
             }
           >
-            <AppCard>
+            <AppCard
+              style={
+                withStaff
+                  ? {
+                      backgroundColor: dark ? '#3A2A14' : '#FFF6EA',
+                      borderColor: dark ? '#E8A54B' : '#F0B45A',
+                      borderLeftWidth: 5,
+                      borderLeftColor: '#E8942A',
+                    }
+                  : { borderLeftWidth: 5, borderLeftColor: c.primary }
+              }
+            >
               <Text style={{ color: c.primary, fontWeight: '800' }}>{item.caseNumber}</Text>
               <Text style={{ color: c.text, fontWeight: '700', marginTop: 4 }}>
                 {item.caseTitle || item.title || '—'}
@@ -244,10 +340,21 @@ export function CasesScreen({ navigation }: Props) {
                   {t('nextHearing')}: {item.nextHearingDate}
                 </Text>
               ) : null}
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 13,
+                  fontWeight: '800',
+                  color: withStaff ? (dark ? '#F6C27A' : '#B86A12') : c.textMuted,
+                }}
+              >
+                {withStaff ? `${t('assignedStaff')}: ${names.join(', ')}` : t('selfManaged')}
+              </Text>
               {item.status ? <StatusPill label={item.status} /> : null}
             </AppCard>
           </Pressable>
-        )}
+          )
+        }}
       />
 
       <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
@@ -286,7 +393,7 @@ export function CasesScreen({ navigation }: Props) {
                   label={t('searchStaff')}
                   value={staffId}
                   placeholder={staff.length ? t('allStaff') : t('emptyStaff')}
-                  options={staff.map((row) => ({
+                  options={staff.filter((row) => row.active !== false).map((row) => ({
                     value: row.id,
                     label: `${row.name}${row.staffCode ? ` (${row.staffCode})` : ''}`,
                   }))}

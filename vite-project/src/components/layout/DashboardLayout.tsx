@@ -232,6 +232,25 @@ export function DashboardLayout({
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const urgentCount = useUrgentHearingCount(basePath)
+  const [staffPerms, setStaffPerms] = useState<Record<string, boolean> | null>(null)
+
+  useEffect(() => {
+    if (user?.role !== 'STAFF') return
+    api<{ data: { permissions?: Record<string, boolean> } }>('/staff/me')
+      .then((res) => setStaffPerms(res.data.permissions || {}))
+      .catch(() => setStaffPerms({}))
+  }, [user?.id, user?.role])
+
+  const visibleNav = nav.filter((item) => {
+    if (user?.role !== 'STAFF' || !staffPerms) return true
+    if (item.to === '/staff/cases') return Boolean(staffPerms.viewCases || staffPerms.editCases || staffPerms.addCase)
+    if (item.to === '/staff/hearings' || item.to === '/staff/urgent') {
+      return Boolean(staffPerms.viewHearingDates || staffPerms.editHearingDates)
+    }
+    if (item.to === '/staff/tasks') return Boolean(staffPerms.manageTasks)
+    if (item.to === '/staff/documents') return Boolean(staffPerms.manageDocuments)
+    return true
+  })
 
   useEffect(() => {
     try {
@@ -279,7 +298,7 @@ export function DashboardLayout({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <SidebarNav items={nav} collapsed={collapsed} urgentCount={urgentCount} />
+          <SidebarNav items={visibleNav} collapsed={collapsed} urgentCount={urgentCount} />
         </div>
 
         <div className={cn('shrink-0 border-t border-white/10', collapsed ? 'p-2' : 'p-3')}>
@@ -315,7 +334,7 @@ export function DashboardLayout({
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              <SidebarNav items={nav} onNavigate={() => setDrawer(false)} urgentCount={urgentCount} />
+              <SidebarNav items={visibleNav} onNavigate={() => setDrawer(false)} urgentCount={urgentCount} />
             </div>
             <div className="shrink-0 border-t border-white/10 p-3">
               <button

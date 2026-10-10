@@ -9,6 +9,7 @@ import { EmptyState, StatusPill } from '../components/ui/MenuRow'
 import { Screen } from '../components/ui/Screen'
 import { ScreenHeader } from '../components/ui/ScreenHeader'
 import { api } from '../api/client'
+import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
 import type { RootStackParamList } from '../navigation/types'
@@ -32,7 +33,8 @@ export function DocumentsScreen({ navigation }: Props) {
   const [name, setName] = useState('')
   const [caseId, setCaseId] = useState('')
   const [refreshing, setRefreshing] = useState(false)
-  const isLawyer = user?.role === 'LAWYER'
+  const { allow } = useStaffPerms()
+  const canUpload = user?.role === 'LAWYER' || allow('manageDocuments')
 
   const load = async () => {
     try {
@@ -70,7 +72,7 @@ export function DocumentsScreen({ navigation }: Props) {
     <Screen scroll={false} style={{ paddingHorizontal: 0 }}>
       <View style={{ paddingHorizontal: 20 }}>
         <ScreenHeader title={t('documents')} onBack={() => navigation.goBack()} />
-        {isLawyer ? (
+        {canUpload ? (
           <View style={{ gap: 8, marginBottom: 8 }}>
             <AppInput label="Case ID" value={caseId} onChangeText={setCaseId} />
             <AppInput label={t('docName')} value={name} onChangeText={setName} />

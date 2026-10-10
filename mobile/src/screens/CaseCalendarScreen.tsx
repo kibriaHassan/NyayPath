@@ -98,7 +98,14 @@ export function CaseCalendarScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      const openToday = () => {
+        const now = new Date()
+        setCursor(now)
+        setSelected(todayKey(now))
+      }
+      openToday()
       load()
+      return openToday
     }, [load]),
   )
 

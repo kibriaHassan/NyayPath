@@ -98,11 +98,20 @@ export function BdLocationFilters({
         list = apiCourts.filter((c) => c.district === district && (!division || c.division === division))
       }
       const names = [...new Set(list.map((c) => c.courtName))]
-      return names.map((c) => ({ value: c, label: c }))
+      const mapped = names.map((c) => ({ value: c, label: c }))
+      if (court && !mapped.some((o) => o.value === court)) {
+        return [{ value: court, label: court }, ...mapped]
+      }
+      return mapped
     }
-    if (entry && !courtType) return getCourtsForDistrict(district).map((c) => ({ value: c, label: c }))
-    return getCourtsByType(district, courtType).map((c) => ({ value: c, label: c }))
-  }, [apiCourts, district, courtType, entry, division])
+    const mapped = entry && !courtType
+      ? getCourtsForDistrict(district).map((c) => ({ value: c, label: c }))
+      : getCourtsByType(district, courtType).map((c) => ({ value: c, label: c }))
+    if (court && !mapped.some((o) => o.value === court)) {
+      return [{ value: court, label: court }, ...mapped]
+    }
+    return mapped
+  }, [apiCourts, district, courtType, entry, division, court])
 
   const set = (patch: Partial<BdLocationFilterValues>) => {
     onChange({ ...value, ...patch })

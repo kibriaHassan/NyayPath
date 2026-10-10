@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { tasks, staffMembers, cases } from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -8,8 +8,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
+import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
-import type { Task } from '@/types'
+import type { Staff, Task } from '@/types'
 import { getStaffById } from '@/data/mock'
 
 export default function TasksPage({ forStaff = false }: { forStaff?: boolean }) {
@@ -20,6 +21,18 @@ export default function TasksPage({ forStaff = false }: { forStaff?: boolean }) 
     return []
   })
   const [open, setOpen] = useState(false)
+  const [canUpdate, setCanUpdate] = useState(!forStaff)
+
+  useEffect(() => {
+    api<{ data: Task[] }>('/tasks')
+      .then((res) => setList(res.data || []))
+      .catch(() => {})
+    if (forStaff) {
+      api<{ data: Staff }>('/staff/me')
+        .then((res) => setCanUpdate(Boolean(res.data.permissions?.manageTasks)))
+        .catch(() => setCanUpdate(false))
+    }
+  }, [forStaff])
 
   const myStaff = useMemo(
     () => staffMembers.filter((s) => s.lawyerId === user?.id && s.active),
@@ -50,13 +63,12 @@ export default function TasksPage({ forStaff = false }: { forStaff?: boolean }) 
       render: (r) => (
         <Select
           value={r.status}
-          onChange={(e) =>
-            setList((prev) =>
-              prev.map((t) =>
-                t.id === r.id ? { ...t, status: e.target.value as Task['status'] } : t,
-              ),
-            )
-          }
+          disabled={!canUpdate}
+          onChange={(e) => {
+            const status = e.target.value as Task['status']
+            setList((prev) => prev.map((t) => (t.id === r.id ? { ...t, status } : t)))
+            void api(`/tasks/${r.id}/status`, { method: 'PATCH', body: { status } }).catch(() => {})
+          }}
           options={['Pending', 'In Progress', 'Completed'].map((v) => ({ value: v, label: v }))}
           className="h-9"
         />

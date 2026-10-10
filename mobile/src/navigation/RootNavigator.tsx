@@ -278,10 +278,13 @@ export function RootNavigator() {
         initialRouteName={initial}
         screenOptions={{
           headerShown: false,
-          animation: 'slide_from_right',
+          animation: 'fade',
+          animationDuration: 180,
           gestureEnabled: true,
           fullScreenGestureEnabled: true,
-          animationDuration: 250,
+          detachPreviousScreen: false,
+          freezeOnBlur: true,
+          contentStyle: { backgroundColor: c.bg },
         }}
       >
         <Stack.Screen name="Welcome" component={WelcomeScreen} />

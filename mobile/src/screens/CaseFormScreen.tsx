@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { AppButton } from '../components/ui/AppButton'
 import { AppCard } from '../components/ui/AppCard'
@@ -137,26 +138,29 @@ export function CaseFormScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (mode === 'edit') return
     const num = normalizeCaseNumber(caseNumber)
-    if (!num.ok || !loc.division || !loc.district || !loc.court) {
+    const ready =
+      num.ok &&
+      caseType.trim() &&
+      loc.division &&
+      loc.district &&
+      loc.courtType &&
+      loc.court.trim()
+    if (!ready) {
       setMatch(null)
       return
     }
     let cancelled = false
     const qs = new URLSearchParams({
       q: num.value,
+      caseType: caseType.trim(),
       division: loc.division,
       district: loc.district,
-      court: loc.court,
+      courtType: loc.courtType,
+      court: loc.court.trim(),
     })
     api<{ data: MatchPreview | null }>(`/cases/match?${qs}`)
       .then((res) => {
-        if (cancelled) return
-        const m = res.data
-        setMatch(m)
-        if (!m) return
-        setCaseTitle((prev) => prev || m.caseTitle || '')
-        setPlaintiff((prev) => prev || m.plaintiff || '')
-        setDefendant((prev) => prev || m.defendant || '')
+        if (!cancelled) setMatch(res.data)
       })
       .catch(() => {
         if (!cancelled) setMatch(null)
@@ -164,7 +168,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
     return () => {
       cancelled = true
     }
-  }, [mode, caseNumber, loc.division, loc.district, loc.court])
+  }, [mode, caseNumber, caseType, loc.division, loc.district, loc.courtType, loc.court])
 
   const opposite =
     match && side
@@ -188,6 +192,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
     if (!filingDate.trim() || !nextHearingDate.trim()) return t('needDates')
     if (!plaintiff.trim() || !defendant.trim()) return t('needParties')
     if (!side) return t('needSide')
+    if (mode !== 'edit' && match) return t('caseAlreadyExists')
     return null
   }, [
     caseNumber,
@@ -199,6 +204,8 @@ export function CaseFormScreen({ navigation, route }: Props) {
     plaintiff,
     defendant,
     side,
+    mode,
+    match,
     t,
   ])
 
@@ -330,16 +337,22 @@ export function CaseFormScreen({ navigation, route }: Props) {
           {match ? (
             <View
               style={{
-                borderWidth: 1,
-                borderColor: c.primary,
-                backgroundColor: c.primarySoft,
-                borderRadius: 14,
-                padding: 12,
-                gap: 4,
+                borderWidth: 2,
+                borderColor: '#D97706',
+                backgroundColor: '#FFF7ED',
+                borderRadius: 16,
+                padding: 14,
+                gap: 6,
               }}
             >
-              <Text style={{ color: c.text, fontWeight: '800' }}>{t('caseAlreadyExists')}</Text>
-              <Text style={{ color: c.textMuted, fontSize: 13 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="warning" size={22} color="#B45309" />
+                <Text style={{ color: '#7C2D12', fontWeight: '800', fontSize: 16, flex: 1 }}>
+                  {t('caseAlreadyExists')}
+                </Text>
+              </View>
+              <Text style={{ color: '#9A3412', fontSize: 13, lineHeight: 18 }}>{t('caseAlreadyHint')}</Text>
+              <Text style={{ color: c.text, fontWeight: '700' }}>
                 {match.caseNumber} — {match.caseTitle || '—'}
               </Text>
               <Text style={{ color: c.text, fontSize: 13 }}>
@@ -461,7 +474,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
           <AppButton
             title={saving ? t('loading') : t('save')}
             onPress={() => void save()}
-            disabled={saving}
+            disabled={saving || (mode !== 'edit' && Boolean(match))}
             fullWidth
           />
           <AppButton

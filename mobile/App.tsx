@@ -29,7 +29,7 @@ export default function App() {
   }, [theme, c.bg])
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
       <RootNavigator />
     </SafeAreaProvider>

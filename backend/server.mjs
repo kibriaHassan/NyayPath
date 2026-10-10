@@ -205,6 +205,14 @@ function staffIsBlocked(staff) {
   return !staff || staff.active === false
 }
 
+function staffCan(staff, key) {
+  return Boolean(staff?.permissions?.[key])
+}
+
+function staffOnCase(caseItem, staffId) {
+  return Array.isArray(caseItem?.assignedStaffIds) && caseItem.assignedStaffIds.includes(staffId)
+}
+
 const BD_DIVISION_DISTRICTS = {
   ঢাকা: ['ঢাকা', 'গাজীপুর', 'নারায়ণগঞ্জ', 'মানিকগঞ্জ', 'মুন্সিগঞ্জ', 'নরসিংদী', 'টাঙ্গাইল', 'কিশোরগঞ্জ', 'ফরিদপুর', 'মাদারীপুর', 'শরীয়তপুর', 'রাজবাড়ী', 'গোপালগঞ্জ'],
   চট্টগ্রাম: ['চট্টগ্রাম', 'কক্সবাজার', 'রাঙ্গামাটি', 'বান্দরবান', 'খাগড়াছড়ি', 'নোয়াখালী', 'ফেনী', 'লক্ষ্মীপুর', 'চাঁদপুর', 'কুমিল্লা', 'ব্রাহ্মণবাড়িয়া'],
@@ -399,13 +407,17 @@ function normalizeCaseNumber(raw) {
   return { ok: true, value: `${serial}/${year}` }
 }
 
-function sameCaseRecord(c, { caseNumber, division, district, courtName }) {
+function sameCaseRecord(c, { caseNumber, caseType, division, district, courtType, courtName }) {
   const n = normalizeCaseNumber(c.caseNumber)
   const cNum = n.ok ? n.value : String(c.caseNumber || '').trim()
+  const storedType = String(c.courtType || '')
+  const courtTypeOk = !storedType || storedType === String(courtType || '')
   return (
-    cNum.toLowerCase() === caseNumber.toLowerCase() &&
+    cNum.toLowerCase() === String(caseNumber || '').toLowerCase() &&
+    String(c.caseType || '') === String(caseType || '') &&
     String(c.division || '') === String(division || '') &&
     String(c.district || c.courtLocation || '') === String(district || '') &&
+    courtTypeOk &&
     String(c.courtName || '') === String(courtName || '')
   )
 }
@@ -1957,7 +1969,11 @@ async function handler(req, res) {
       if (auth.role === 'LAWYER') {
         list = db.cases.filter((c) => lawyerCanAccessCase(c, auth.id))
       } else if (auth.role === 'STAFF') {
-        list = db.cases.filter((c) => (c.assignedStaffIds || []).includes(auth.id))
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'viewCases') && !staffCan(staff, 'editCases') && !staffCan(staff, 'addCase')) {
+          return json(res, 200, { data: [] }, req)
+        }
+        list = db.cases.filter((c) => staffOnCase(c, auth.id))
       } else return json(res, 403, { error: 'Forbidden' }, req)
       const sorted = [...list].sort((a, b) => {
         const da = hearingDayKey(a.nextHearingDate)
@@ -1979,19 +1995,28 @@ async function handler(req, res) {
 
     // Lookup existing case before/during entry (same number + location)
     if (method === 'GET' && path === '/api/cases/match') {
-      if (!auth || auth.role !== 'LAWYER') return json(res, 403, { error: 'Forbidden' }, req)
+      if (!auth || (auth.role !== 'LAWYER' && auth.role !== 'STAFF')) {
+        return json(res, 403, { error: 'Forbidden' }, req)
+      }
+      if (auth.role === 'STAFF' && !staffCan(getStaffRecord(auth), 'addCase')) {
+        return json(res, 403, { error: 'মামলা যোগ করার অনুমতি নেই।' }, req)
+      }
       const num = normalizeCaseNumber(url.searchParams.get('q') || '')
       if (!num.ok) return json(res, 400, { error: num.error }, req)
+      const caseType = (url.searchParams.get('caseType') || '').trim()
       const division = (url.searchParams.get('division') || '').trim()
       const district = (url.searchParams.get('district') || '').trim()
+      const courtType = (url.searchParams.get('courtType') || '').trim()
       const courtName = (url.searchParams.get('court') || url.searchParams.get('courtName') || '').trim()
-      if (!division || !district || !courtName) {
-        return json(res, 400, { error: 'বিভাগ, জেলা ও আদালত দিন।' }, req)
+      if (!caseType || !division || !district || !courtType || !courtName) {
+        return json(res, 200, { data: null }, req)
       }
       const found = findMatchingCase(db, {
         caseNumber: num.value,
+        caseType,
         division,
         district,
+        courtType,
         courtName,
       })
       if (!found) return json(res, 200, { data: null }, req)
@@ -2012,7 +2037,10 @@ async function handler(req, res) {
             division: found.division,
             district: found.district,
             courtName: found.courtName,
+            caseType: found.caseType || '',
+            courtType: found.courtType || '',
             status: found.status,
+            canOpen: lawyerCanAccessCase(found, auth.id),
           },
         },
         req,
@@ -2025,6 +2053,12 @@ async function handler(req, res) {
       const c = db.cases.find((x) => x.id === caseMatch[1])
       if (!c) return json(res, 404, { error: 'Case not found' }, req)
       const staffIds = Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
+      if (auth.role === 'STAFF') {
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'viewCases') && !staffCan(staff, 'editCases') && !staffCan(staff, 'addNotes')) {
+          return json(res, 403, { error: 'মামলা দেখার অনুমতি নেই।' }, req)
+        }
+      }
       const allowed =
         (auth.role === 'LAWYER' && lawyerCanAccessCase(c, auth.id)) ||
         (auth.role === 'STAFF' && staffIds.includes(auth.id))
@@ -2033,7 +2067,17 @@ async function handler(req, res) {
     }
 
     if (method === 'POST' && path === '/api/cases') {
-      if (!auth || auth.role !== 'LAWYER') return json(res, 403, { error: 'Forbidden' }, req)
+      if (!auth || (auth.role !== 'LAWYER' && auth.role !== 'STAFF')) {
+        return json(res, 403, { error: 'Forbidden' }, req)
+      }
+      let ownerLawyerId = auth.id
+      if (auth.role === 'STAFF') {
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'addCase') || !staff?.lawyerId) {
+          return json(res, 403, { error: 'মামলা যোগ করার অনুমতি নেই।' }, req)
+        }
+        ownerLawyerId = staff.lawyerId
+      }
       const body = await readBody(req)
       if (!body.caseNumber || !body.caseTitle || !body.courtName) {
         return json(res, 400, { error: 'মামলা নম্বর, শিরোনাম ও আদালত আবশ্যক।' }, req)
@@ -2052,90 +2096,22 @@ async function handler(req, res) {
         String(body.division || '').trim() || findDivisionByDistrictName(district) || ''
       const courtName = String(body.courtName).trim()
       const side = body.representingSide === 'defendant' ? 'defendant' : 'plaintiff'
-      const lawyer = db.lawyers.find((l) => l.id === auth.id)
+      const lawyer = db.lawyers.find((l) => l.id === ownerLawyerId)
       const myName = lawyer?.fullName || ''
+      if (auth.role === 'STAFF' && !assignedStaffIds.includes(auth.id)) assignedStaffIds.push(auth.id)
 
-      const matchKey = { caseNumber: num.value, division, district, courtName }
+      const caseType = String(body.caseType || '').trim()
+      const courtType = String(body.courtType || '').trim()
+      const matchKey = { caseNumber: num.value, caseType, division, district, courtType, courtName }
       const existing = findMatchingCase(db, matchKey)
 
-      // —— একই মামলা আগে এন্ট্রি থাকলে মার্জ / রিপ্লেস ——
       if (existing) {
-        const prevPlaintiffId = existing.plaintiffLawyerId
-        const prevDefendantId = existing.defendantLawyerId
-        const alreadyOnOtherSide =
-          (side === 'plaintiff' && existing.defendantLawyerId === auth.id) ||
-          (side === 'defendant' && existing.plaintiffLawyerId === auth.id)
-        if (alreadyOnOtherSide) {
-          return json(
-            res,
-            409,
-            { error: 'আপনি ইতিমধ্যে এই মামলার অন্য পক্ষে আছেন। একজন উকিল দুই পক্ষে থাকতে পারেন না।' },
-            req,
-          )
-        }
-
-        // একই পক্ষে অন্য উকিল থাকলে কেটে নতুন উকিল বসান
-        const prevOnSide = side === 'plaintiff' ? prevPlaintiffId : prevDefendantId
-        if (prevOnSide && prevOnSide !== auth.id) {
-          clearLawyerFromSide(existing, side)
-          db.notifications.unshift({
-            id: uid('ntf'),
-            userId: prevOnSide,
-            role: 'LAWYER',
-            title: 'মামলা থেকে সরানো হয়েছে',
-            message: `${num.value} মামলায় আপনার স্থানে অন্য উকিল নিযুক্ত হয়েছেন।`,
-            type: 'case',
-            read: false,
-            createdAt: new Date().toISOString(),
-            link: '/lawyer/cases',
-          })
-        }
-
-        assignLawyerToSide(existing, side, auth.id, myName)
-        // shared fields refresh (safe)
-        if (body.caseTitle) existing.caseTitle = String(body.caseTitle).trim()
-        if (body.plaintiff) existing.plaintiff = String(body.plaintiff).trim()
-        if (body.defendant) existing.defendant = String(body.defendant).trim()
-        if (body.nextHearingDate) existing.nextHearingDate = body.nextHearingDate
-        if (body.status) existing.status = body.status
-        if (body.judgeName) existing.judgeName = body.judgeName
-        if (body.description) existing.description = body.description
-        existing.caseNumber = num.value
-        existing.division = division
-        existing.district = district
-        existing.courtName = courtName
-        existing.courtLocation = courtLocation
-        if (!existing.ownerLawyerId) existing.ownerLawyerId = auth.id
-
-        // opposite lawyer auto — already on record; notify opposite if present
-        const oppositeId = side === 'plaintiff' ? existing.defendantLawyerId : existing.plaintiffLawyerId
-        if (oppositeId && oppositeId !== auth.id) {
-          db.notifications.unshift({
-            id: uid('ntf'),
-            userId: oppositeId,
-            role: 'LAWYER',
-            title: 'বিপরীত পক্ষের উকিল যোগ হয়েছেন',
-            message: `${num.value} মামলায় ${myName} ${side === 'plaintiff' ? 'বাদীপক্ষ' : 'বিবাদীপক্ষ'} হিসেবে যোগ দিয়েছেন।`,
-            type: 'case',
-            read: false,
-            createdAt: new Date().toISOString(),
-            link: `/lawyer/cases/${existing.id}`,
-          })
-        }
-
-        saveDb(db)
         return json(
           res,
-          200,
+          409,
           {
-            data: existing,
-            merged: true,
-            message:
-              oppositeId
-                ? 'একই মামলায় যোগ হয়েছে — বিপরীত পক্ষের উকিল অটো সংযুক্ত।'
-                : prevOnSide && prevOnSide !== auth.id
-                  ? 'আগের উকিল সরিয়ে আপনি এই পক্ষে নিযুক্ত হয়েছেন।'
-                  : 'মামলা আপডেট হয়েছে।',
+            error: 'এই মামলাটি আগে এন্ট্রি হয়েছে। একই মামলা দ্বিতীয়বার এন্ট্রি করা যাবে না।',
+            data: { id: existing.id, canOpen: lawyerCanAccessCase(existing, auth.id) },
           },
           req,
         )
@@ -2159,8 +2135,8 @@ async function handler(req, res) {
         representingSide: side,
         plaintiffLawyerName: side === 'plaintiff' ? myName : '',
         defendantLawyerName: side === 'defendant' ? myName : '',
-        plaintiffLawyerId: side === 'plaintiff' ? auth.id : undefined,
-        defendantLawyerId: side === 'defendant' ? auth.id : undefined,
+        plaintiffLawyerId: side === 'plaintiff' ? ownerLawyerId : undefined,
+        defendantLawyerId: side === 'defendant' ? ownerLawyerId : undefined,
         nextHearingDate: body.nextHearingDate || '',
         nextHearingPurpose: body.nextHearingPurpose || '',
         judgeName: body.judgeName || '',
@@ -2168,7 +2144,7 @@ async function handler(req, res) {
         assignedStaffIds,
         importantNotes: body.importantNotes || '',
         privateNotes: body.privateNotes || '',
-        ownerLawyerId: auth.id,
+        ownerLawyerId,
       }
       db.cases.push(created)
       if (created.nextHearingDate) {
@@ -2183,7 +2159,7 @@ async function handler(req, res) {
           hearingType: body.hearingType || 'শুনানি',
           notes: created.nextHearingPurpose || '',
           responsibleStaffId: assignedStaffIds[0] || '',
-          lawyerId: auth.id,
+          lawyerId: ownerLawyerId,
         })
       }
       saveDb(db)
@@ -2234,9 +2210,17 @@ async function handler(req, res) {
         return json(res, 403, { error: 'Forbidden' }, req)
       }
       if (auth.role === 'STAFF') {
-        const staff = db.staff.find((s) => s.id === auth.id)
-        if (!staff?.permissions.editCases || !existing.assignedStaffIds.includes(auth.id)) {
-          return json(res, 403, { error: 'Forbidden' }, req)
+        const staff = getStaffRecord(auth)
+        const assigned = staffOnCase(existing, auth.id)
+        const canEdit = assigned && staffCan(staff, 'editCases')
+        const canNotes = assigned && staffCan(staff, 'addNotes')
+        if (!canEdit && !canNotes) return json(res, 403, { error: 'মামলা এডিট বা নোটের অনুমতি নেই।' }, req)
+        if (!canEdit) {
+          const body = await readBody(req)
+          if (body.importantNotes !== undefined) existing.importantNotes = String(body.importantNotes)
+          if (body.privateNotes !== undefined) existing.privateNotes = String(body.privateNotes)
+          saveDb(db)
+          return json(res, 200, { data: existing }, req)
         }
       }
       const body = await readBody(req)
@@ -2574,7 +2558,14 @@ async function handler(req, res) {
         )
         list = db.hearings.filter((h) => h.lawyerId === auth.id || myCaseIds.has(h.caseId))
       } else {
-        list = db.hearings.filter((h) => h.responsibleStaffId === auth.id)
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'viewHearingDates') && !staffCan(staff, 'editHearingDates')) {
+          return json(res, 200, { data: [] }, req)
+        }
+        const mine = new Set(
+          db.cases.filter((c) => staffOnCase(c, auth.id)).map((c) => c.id),
+        )
+        list = db.hearings.filter((h) => mine.has(h.caseId) || h.responsibleStaffId === auth.id)
       }
       return json(res, 200, { data: list }, req)
     }
@@ -2584,6 +2575,12 @@ async function handler(req, res) {
       const body = await readBody(req)
       const caseItem = db.cases.find((c) => c.id === body.caseId)
       if (!caseItem) return json(res, 404, { error: 'Case not found' })
+      if (auth.role === 'STAFF') {
+        const staff = getStaffRecord(auth)
+        if (!staffOnCase(caseItem, auth.id) || !staffCan(staff, 'editHearingDates')) {
+          return json(res, 403, { error: 'শুনানির তারিখ এডিটের অনুমতি নেই।' }, req)
+        }
+      }
       const created = {
         id: uid('hr'),
         caseId: body.caseId,
@@ -2608,7 +2605,11 @@ async function handler(req, res) {
       if (!auth) return json(res, 401, { error: 'Unauthorized' })
       let list = []
       if (auth.role === 'LAWYER') list = db.tasks.filter((t) => t.lawyerId === auth.id)
-      else list = db.tasks.filter((t) => t.assignedStaffId === auth.id)
+      else {
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'manageTasks')) return json(res, 200, { data: [] }, req)
+        list = db.tasks.filter((t) => t.assignedStaffId === auth.id)
+      }
       return json(res, 200, { data: list })
     }
 
@@ -2651,6 +2652,12 @@ async function handler(req, res) {
       if (!auth) return json(res, 401, { error: 'Unauthorized' })
       const t = db.tasks.find((x) => x.id === taskStatus[1])
       if (!t) return json(res, 404, { error: 'Task not found' })
+      if (auth.role === 'STAFF') {
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'manageTasks') || t.assignedStaffId !== auth.id) {
+          return json(res, 403, { error: 'টাস্ক আপডেটের অনুমতি নেই।' }, req)
+        }
+      }
       const body = await readBody(req)
       t.status = body.status || t.status
       saveDb(db)
@@ -2663,7 +2670,9 @@ async function handler(req, res) {
       if (auth.role === 'LAWYER') {
         db.cases.filter((c) => c.ownerLawyerId === auth.id).forEach((c) => caseIds.add(c.id))
       } else {
-        db.cases.filter((c) => c.assignedStaffIds.includes(auth.id)).forEach((c) => caseIds.add(c.id))
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'manageDocuments')) return json(res, 200, { data: [] }, req)
+        db.cases.filter((c) => staffOnCase(c, auth.id)).forEach((c) => caseIds.add(c.id))
       }
       return json(res, 200, { data: db.documents.filter((d) => caseIds.has(d.caseId)) })
     }
@@ -2671,6 +2680,14 @@ async function handler(req, res) {
     if (method === 'POST' && path === '/api/documents') {
       if (!auth) return json(res, 401, { error: 'Unauthorized' })
       const body = await readBody(req)
+      const docCase = db.cases.find((c) => c.id === body.caseId)
+      if (!docCase) return json(res, 404, { error: 'Case not found' }, req)
+      if (auth.role === 'STAFF') {
+        const staff = getStaffRecord(auth)
+        if (!staffCan(staff, 'manageDocuments') || !staffOnCase(docCase, auth.id)) {
+          return json(res, 403, { error: 'ডকুমেন্ট যোগ করার অনুমতি নেই।' }, req)
+        }
+      }
       const user = publicUserFromAuth(auth)
       const created = {
         id: uid('doc'),

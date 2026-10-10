@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Camera, CheckCircle2, MapPin, Building2, Scale } from 'lucide-react'
+import { Camera, CheckCircle2, MapPin, Building2, Scale, Pencil } from 'lucide-react'
 import { getLawyerById, lawyers } from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
 import { Input } from '@/components/ui/Input'
@@ -56,6 +56,12 @@ export default function LawyerProfilePage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [saved, setSaved] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const savedSnap = useRef<{
+    form: FormState
+    publicEnabled: boolean
+    visibility: PublicVisibility
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [photoError, setPhotoError] = useState('')
@@ -95,7 +101,15 @@ export default function LawyerProfilePage() {
       .then((res) => {
         if (cancelled || !res.data) return
         const l = res.data
-        setForm({
+        const nextPublic = l.publicProfileEnabled ?? true
+        const nextVisibility = l.visibility || {
+          enrollmentNumber: true,
+          mobile: true,
+          email: true,
+          chamberAddress: true,
+          bio: true,
+        }
+        const nextForm: FormState = {
           fullName: l.fullName || '',
           email: l.email || '',
           mobile: l.mobile || '',
@@ -112,9 +126,11 @@ export default function LawyerProfilePage() {
           chamberLocation: l.chamberLocation || '',
           bio: l.bio || '',
           photo: l.photo || '',
-        })
-        setPublicEnabled(l.publicProfileEnabled ?? true)
-        if (l.visibility) setVisibility(l.visibility)
+        }
+        setForm(nextForm)
+        setPublicEnabled(nextPublic)
+        setVisibility(nextVisibility)
+        savedSnap.current = { form: nextForm, publicEnabled: nextPublic, visibility: nextVisibility }
       })
       .catch(() => {
         /* mock fallback already in state */
@@ -198,25 +214,61 @@ export default function LawyerProfilePage() {
     try {
       await api('/profile/lawyer', { method: 'PUT', body: payload })
       setSaved(true)
+      setEditing(false)
     } catch {
       // mock already saved locally
       setSaved(true)
+      setEditing(false)
     } finally {
       setSaving(false)
     }
+  }
+
+  const startEdit = () => {
+    savedSnap.current = {
+      form: { ...form },
+      publicEnabled,
+      visibility: { ...visibility },
+    }
+    setSaved(false)
+    setError('')
+    setEditing(true)
+  }
+
+  const cancelEdit = () => {
+    const snap = savedSnap.current
+    if (snap) {
+      setForm(snap.form)
+      setPublicEnabled(snap.publicEnabled)
+      setVisibility(snap.visibility)
+    }
+    setError('')
+    setPhotoError('')
+    setEditing(false)
   }
 
   if (!lawyer && !user) return null
 
   return (
     <div className="space-y-6 pb-4">
-      <div>
-        <h1 className="font-display text-2xl font-semibold md:text-3xl">My Profile</h1>
-        <p className="text-sm text-muted">ছবি, চেম্বার লোকেশন ও আদালতের তথ্য আপডেট করুন</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-semibold md:text-3xl">My Profile</h1>
+          <p className="text-sm text-muted">
+            {editing ? 'তথ্য বদলে সেভ করুন' : 'তথ্য দেখুন। আপডেট করতে তথ্য পরিবর্তন চাপুন।'}
+          </p>
+        </div>
+        {!editing ? (
+          <Button type="button" onClick={startEdit} className="rounded-xl">
+            <Pencil className="h-4 w-4" />
+            তথ্য পরিবর্তন
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_300px]">
         <form onSubmit={onSubmit} className="space-y-5">
+          <fieldset disabled={!editing} className="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100">
           {/* Photo */}
           <section className="rounded-2xl border border-border/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.04)]">
             <div className="mb-4 flex items-center gap-2">
@@ -444,21 +496,27 @@ export default function LawyerProfilePage() {
 
           {error && <p className="text-sm text-danger">{error}</p>}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={saving} className="rounded-xl">
-              {saving ? 'সংরক্ষণ হচ্ছে...' : 'প্রোফাইল সেভ করুন'}
-            </Button>
-            {saved && (
-              <span className="inline-flex items-center gap-1.5 text-sm text-success">
-                <CheckCircle2 className="h-4 w-4" />
-                সংরক্ষণ হয়েছে
-              </span>
-            )}
-          </div>
+          </fieldset>
+          {editing ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={saving} className="rounded-xl">
+                {saving ? 'সংরক্ষণ হচ্ছে...' : 'প্রোফাইল সেভ করুন'}
+              </Button>
+              <Button type="button" variant="outline" className="rounded-xl" onClick={cancelEdit} disabled={saving}>
+                বাতিল
+              </Button>
+            </div>
+          ) : null}
+          {saved && !editing && (
+            <span className="pointer-events-none inline-flex items-center gap-1.5 text-sm text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              সংরক্ষণ হয়েছে
+            </span>
+          )}
         </form>
 
         <div className="space-y-4">
-          <Card className="rounded-2xl">
+          <Card className={cn('rounded-2xl', !editing && 'pointer-events-none')}>
             <CardHeader>
               <h2 className="font-semibold">পাবলিক প্রোফাইল</h2>
             </CardHeader>
@@ -467,6 +525,7 @@ export default function LawyerProfilePage() {
                 <span>পাবলিক প্রোফাইল চালু</span>
                 <input
                   type="checkbox"
+                  disabled={!editing}
                   checked={publicEnabled}
                   onChange={(e) => {
                     setPublicEnabled(e.target.checked)
@@ -482,6 +541,7 @@ export default function LawyerProfilePage() {
                   <span className="capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
                   <input
                     type="checkbox"
+                    disabled={!editing}
                     checked={visibility[key]}
                     onChange={(e) => {
                       setVisibility((v) => ({ ...v, [key]: e.target.checked }))

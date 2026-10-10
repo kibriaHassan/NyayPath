@@ -97,7 +97,9 @@ export default function App() {
             <Route path="dashboard" element={<StaffDashboardPage />} />
             <Route path="urgent" element={<StaffUrgentHearingsPage />} />
             <Route path="cases" element={<StaffCasesPage />} />
+            <Route path="cases/new" element={<LawyerCaseFormPage mode="create" />} />
             <Route path="cases/:id" element={<CaseDetailsPage basePath="/staff" />} />
+            <Route path="cases/:id/edit" element={<LawyerCaseFormPage mode="edit" />} />
             <Route path="hearings" element={<StaffHearingsPage />} />
             <Route path="tasks" element={<TasksPage forStaff />} />
             <Route path="documents" element={<DocumentsPage forStaff />} />

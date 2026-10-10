@@ -1,30 +1,37 @@
-import { useState } from 'react'
-import { hearings } from '@/data/mock'
-import { useAuthStore } from '@/store/authStore'
+import { useEffect, useState } from 'react'
 import { HearingCalendar } from '@/components/hearings/HearingCalendar'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/lib/api'
 import { formatDate, isToday, isUpcoming } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import type { Hearing } from '@/types'
-import { getStaffById } from '@/data/mock'
+import type { Hearing, Staff, StaffPermissions } from '@/types'
 
 export default function StaffHearingsPage() {
-  const user = useAuthStore((s) => s.user)
-  const staff = getStaffById(user?.id)
   const [view, setView] = useState<'list' | 'calendar'>('list')
+  const [perms, setPerms] = useState<StaffPermissions | null>(null)
+  const [myHearings, setMyHearings] = useState<Hearing[]>([])
 
-  if (staff && !staff.permissions.viewHearingDates) {
+  useEffect(() => {
+    api<{ data: Staff }>('/staff/me')
+      .then((res) => setPerms(res.data.permissions))
+      .catch(() => setPerms(null))
+    api<{ data: Hearing[] }>('/hearings')
+      .then((res) =>
+        setMyHearings(
+          (res.data || []).slice().sort((a, b) => +new Date(a.hearingDate) - +new Date(b.hearingDate)),
+        ),
+      )
+      .catch(() => setMyHearings([]))
+  }, [])
+
+  if (perms && !perms.viewHearingDates && !perms.editHearingDates) {
     return (
       <div className="rounded-xl border border-border bg-white p-8 text-center text-muted">
         আপনার Hearing Dates দেখার অনুমতি নেই।
       </div>
     )
   }
-
-  const myHearings = hearings
-    .filter((h) => h.responsibleStaffId === user?.id)
-    .sort((a, b) => +new Date(a.hearingDate) - +new Date(b.hearingDate))
 
   const columns: Column<Hearing>[] = [
     { key: 'num', header: 'Case Number', render: (r) => <span className="font-semibold text-teal">{r.caseNumber}</span> },

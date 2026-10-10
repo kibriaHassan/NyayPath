@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { documents, cases } from '@/data/mock'
 import { useAuthStore } from '@/store/authStore'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -7,8 +7,9 @@ import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
+import { api, ApiError } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
-import type { CaseDocument } from '@/types'
+import type { Case, CaseDocument, Staff } from '@/types'
 
 export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean }) {
   const user = useAuthStore((s) => s.user)
@@ -22,9 +23,28 @@ export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean
     return new Set<string>()
   }, [user])
 
-  const [list, setList] = useState(() => documents.filter((d) => myCaseIds.has(d.caseId)))
+  const [list, setList] = useState<CaseDocument[]>(() => documents.filter((d) => myCaseIds.has(d.caseId)))
+  const [liveCases, setLiveCases] = useState<Case[]>([])
+  const [canManage, setCanManage] = useState(!forStaff)
   const [caseFilter, setCaseFilter] = useState('')
   const [open, setOpen] = useState(false)
+  const [docName, setDocName] = useState('')
+  const [docCase, setDocCase] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api<{ data: CaseDocument[] }>('/documents')
+      .then((res) => setList(res.data || []))
+      .catch(() => {})
+    api<{ data: Case[] }>('/cases')
+      .then((res) => setLiveCases(res.data || []))
+      .catch(() => {})
+    if (forStaff) {
+      api<{ data: Staff }>('/staff/me')
+        .then((res) => setCanManage(Boolean(res.data.permissions?.manageDocuments)))
+        .catch(() => setCanManage(false))
+    }
+  }, [forStaff])
 
   const filtered = list.filter((d) => !caseFilter || d.caseId === caseFilter)
 
@@ -50,7 +70,7 @@ export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean
             {forStaff ? 'অ্যাসাইন করা মামলার ডকুমেন্ট' : 'কেস সম্পর্কিত ডকুমেন্ট ম্যানেজমেন্ট'}
           </p>
         </div>
-        {!forStaff && <Button onClick={() => setOpen(true)}>Upload Document</Button>}
+        {canManage && <Button onClick={() => setOpen(true)}>Upload Document</Button>}
       </div>
 
       <div className="max-w-xs">
@@ -59,10 +79,10 @@ export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean
           value={caseFilter}
           onChange={(e) => setCaseFilter(e.target.value)}
           placeholder="সব মামলা"
-          options={[...myCaseIds].map((id) => {
-            const c = cases.find((x) => x.id === id)!
-            return { value: id, label: `${c.caseNumber} — ${c.caseTitle}` }
-          })}
+          options={(liveCases.length ? liveCases : cases.filter((c) => myCaseIds.has(c.id))).map((c) => ({
+            value: c.id,
+            label: `${c.caseNumber} — ${c.caseTitle}`,
+          }))}
         />
       </div>
 
@@ -78,23 +98,24 @@ export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                const firstCase = [...myCaseIds][0]
-                if (!firstCase) return
-                setList((prev) => [
-                  {
-                    id: `doc-${Date.now()}`,
-                    caseId: firstCase,
-                    name: 'নতুন ডকুমেন্ট',
-                    type: 'Other',
-                    uploadDate: new Date().toISOString().slice(0, 10),
-                    uploadedBy: user?.name || 'Lawyer',
-                    fileType: 'PDF',
-                    isPublic: false,
-                  },
-                  ...prev,
-                ])
-                setOpen(false)
+              onClick={async () => {
+                const caseId = docCase || liveCases[0]?.id
+                if (!caseId || !docName.trim()) {
+                  setError('মামলা ও নাম দিন।')
+                  return
+                }
+                try {
+                  const res = await api<{ data: CaseDocument }>('/documents', {
+                    method: 'POST',
+                    body: { caseId, name: docName.trim(), type: 'Other', fileType: 'PDF' },
+                  })
+                  setList((prev) => [res.data, ...prev])
+                  setDocName('')
+                  setOpen(false)
+                  setError('')
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : 'আপলোড হয়নি।')
+                }
               }}
             >
               Upload
@@ -103,7 +124,17 @@ export default function DocumentsPage({ forStaff = false }: { forStaff?: boolean
         }
       >
         <div className="space-y-3">
-          <Input label="Document Name" placeholder="ফাইলের নাম" />
+          <Input label="Document Name" placeholder="ফাইলের নাম" value={docName} onChange={(e) => setDocName(e.target.value)} />
+          <Select
+            label="Case"
+            value={docCase}
+            onChange={(e) => setDocCase(e.target.value)}
+            options={(liveCases.length ? liveCases : cases).map((c) => ({
+              value: c.id,
+              label: `${c.caseNumber} — ${c.caseTitle}`,
+            }))}
+          />
+          {error && <p className="text-sm text-danger">{error}</p>}
           <Select
             label="Type"
             options={['Case File', 'Petition', 'Order', 'Judgment', 'Evidence', 'Other'].map((v) => ({

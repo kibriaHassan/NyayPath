@@ -17,6 +17,7 @@ import { Avatar } from '../ui/Avatar'
 import { useNavigation, useNavigationState, useRoute } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useStaffPerms } from '../../hooks/useStaffPerms'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore, useT } from '../../store/settingsStore'
 import type { RootStackParamList } from '../../navigation/types'
@@ -74,6 +75,7 @@ function SideDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const progress = useRef(new Animated.Value(0)).current
   const closing = useRef(false)
   const isLawyer = user?.role === 'LAWYER'
+  const { allow, isStaff } = useStaffPerms()
   const activeTab = useNavigationState((state) => {
     const current = state.routes[state.index]
     const nested = current?.state
@@ -145,6 +147,8 @@ function SideDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
     ])
   }
 
+  const showCases = !isStaff || allow('viewCases') || allow('editCases') || allow('addCase')
+  const showHearings = !isStaff || allow('viewHearingDates') || allow('editHearingDates')
   const items: { key: string; label: string; onPress: () => void }[] = [
     { key: 'Dashboard', label: t('home'), onPress: () => goTab('Dashboard') },
     {
@@ -152,15 +156,20 @@ function SideDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
       label: t('profile'),
       onPress: () => goStack(isLawyer ? 'LawyerOwnProfile' : 'StaffProfile'),
     },
-    { key: 'Cases', label: t('cases'), onPress: () => goTab('Cases') },
-    { key: 'DayCases', label: t('dayCases'), onPress: () => goTab('DayCases') },
-    { key: 'Calendar', label: t('caseCalendar'), onPress: () => goTab('CaseCalendar') },
-    { key: 'Tasks', label: t('tasks'), onPress: () => goStack('Tasks') },
-    { key: 'Documents', label: t('documents'), onPress: () => goStack('Documents') },
+    ...(showCases ? [{ key: 'Cases', label: t('cases'), onPress: () => goTab('Cases') }] : []),
+    ...(showHearings ? [{ key: 'DayCases', label: t('dayCases'), onPress: () => goTab('DayCases') }] : []),
+    ...(showHearings || showCases
+      ? [{ key: 'Calendar', label: t('caseCalendar'), onPress: () => goTab('CaseCalendar') }]
+      : []),
+    ...(!isStaff || allow('manageTasks')
+      ? [{ key: 'Tasks', label: t('tasks'), onPress: () => goStack('Tasks') }]
+      : []),
+    ...(!isStaff || allow('manageDocuments')
+      ? [{ key: 'Documents', label: t('documents'), onPress: () => goStack('Documents') }]
+      : []),
     { key: 'Notifications', label: t('notifications'), onPress: () => goStack('Notifications') },
     ...(isLawyer ? [{ key: 'Staff', label: t('staffTeam'), onPress: () => goStack('StaffList') }] : []),
     { key: 'Settings', label: t('settings'), onPress: () => goStack('Settings') },
-    { key: 'Logout', label: t('logout'), onPress: doLogout },
   ]
 
   if (!rendered) return null
@@ -253,6 +262,10 @@ function SideDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             </View>
           </View>
           <Text style={[styles.footer, { color: c.textMuted }]}>© {t('appName')}</Text>
+          <Pressable onPress={doLogout} style={styles.logoutBtn}>
+            <Ionicons name="log-out-outline" size={18} color="#fff" />
+            <Text style={styles.logoutText}>{t('logout')}</Text>
+          </Pressable>
         </Animated.View>
       </View>
     </Modal>
@@ -316,6 +329,19 @@ const styles = StyleSheet.create({
   },
   itemMark: { width: 4, height: 22, borderRadius: 4 },
   itemText: { fontSize: 16, fontWeight: '600', flex: 1 },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#DC3B3B',
+  },
+  logoutText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   prefs: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
   prefLabel: { fontSize: 12, fontWeight: '700', marginBottom: 8 },
   prefRow: { flexDirection: 'row', gap: 8 },

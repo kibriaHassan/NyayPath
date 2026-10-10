@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
@@ -15,6 +16,15 @@ export function SuccessToast({
   message = 'Case saved successfully.',
   onDone,
 }: Props) {
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
+
+  useEffect(() => {
+    if (!visible) return
+    const id = setTimeout(() => onDoneRef.current?.(), 2000)
+    return () => clearTimeout(id)
+  }, [visible])
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
       <Pressable style={styles.backdrop} onPress={onDone}>

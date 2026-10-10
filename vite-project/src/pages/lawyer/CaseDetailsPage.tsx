@@ -13,9 +13,12 @@ import { api, ApiError } from '@/lib/api'
 import { Badge, statusBadgeVariant } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { courtTypeLabel, inferCourtType } from '@/lib/bdLocations'
 import { formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
-import type { Case, CaseDocument, Hearing, Staff, Task } from '@/types'
+import type { Case, CaseDocument, Hearing, Staff, StaffPermissions, Task } from '@/types'
 
 export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: string }) {
   const { id } = useParams()
@@ -36,8 +39,18 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
   const [error, setError] = useState('')
   const [withdrawing, setWithdrawing] = useState(false)
   const [actionMsg, setActionMsg] = useState('')
+  const [staffPerms, setStaffPerms] = useState<StaffPermissions | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [hearingDraft, setHearingDraft] = useState('')
+  const [purposeDraft, setPurposeDraft] = useState('')
+  const [docName, setDocName] = useState('')
 
   const isLawyer = user?.role === 'LAWYER'
+  const canEditCase = isLawyer || Boolean(staffPerms?.editCases)
+  const canEditHearing = isLawyer || Boolean(staffPerms?.editHearingDates || staffPerms?.editCases)
+  const canAddNotes = !isLawyer && Boolean(staffPerms?.addNotes)
+  const canDocs = !isLawyer && Boolean(staffPerms?.manageDocuments)
+  const canTasks = !isLawyer && Boolean(staffPerms?.manageTasks)
   const canSeePrivate = isLawyer || user?.role === 'STAFF'
   const iAmOnCase =
     !!user &&
@@ -52,6 +65,13 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
     let cancelled = false
     setLoading(true)
     setError('')
+    if (user?.role === 'STAFF') {
+      api<{ data: Staff }>('/staff/me')
+        .then((res) => {
+          if (!cancelled) setStaffPerms(res.data.permissions)
+        })
+        .catch(() => {})
+    }
 
     Promise.all([
       api<{ data: Case }>(`/cases/${id}`),
@@ -112,23 +132,26 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
   const resolveStaff = (sid: string) =>
     staffList.find((s) => s.id === sid) || getStaffById(sid)
 
+  const courtKind =
+    courtTypeLabel(caseItem.courtType) || courtTypeLabel(inferCourtType(caseItem.courtName)) || '—'
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="space-y-5 pb-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/80 bg-white p-5 shadow-sm">
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-teal">{caseItem.caseNumber}</p>
-          <h1 className="font-display text-2xl font-semibold md:text-3xl">{caseItem.caseTitle}</h1>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink md:text-3xl">{caseItem.caseTitle}</h1>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Badge variant={statusBadgeVariant(caseItem.status)}>{caseItem.status}</Badge>
             <Badge variant="muted">{caseItem.caseType}</Badge>
           </div>
         </div>
-        {isLawyer && (
+        {canEditCase && (
           <div className="flex flex-wrap gap-2">
             <Link to={`${basePath}/cases/${caseItem.id}/edit`}>
               <Button variant="outline">Edit Case</Button>
             </Link>
-            {iAmOnCase && (
+            {isLawyer && iAmOnCase && (
               <Button
                 variant="outline"
                 disabled={withdrawing}
@@ -165,61 +188,78 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
       {actionMsg && <p className="text-sm text-teal">{actionMsg}</p>}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <h2 className="font-semibold">Case Information</h2>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-4 sm:grid-cols-2 text-sm">
-              {[
-                ['Court', caseItem.courtName],
-                ['Location', caseItem.courtLocation],
-                ['Filing Date', formatDate(caseItem.filingDate)],
-                ['Next Hearing', formatDate(caseItem.nextHearingDate)],
-                ['Judge', caseItem.judgeName || '—'],
-                ['Owner Lawyer', owner?.fullName || user?.name || '—'],
-                ['বাদী', caseItem.plaintiff],
-                ['বিবাদী', caseItem.defendant],
-                [
-                  'বাদীপক্ষের উকিল',
-                  caseItem.plaintiffLawyerName ||
+        <div className="space-y-4 lg:col-span-2">
+          <Card className="overflow-hidden rounded-2xl">
+            <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+              <h2 className="font-semibold">আদালত</h2>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-2 text-sm">
+                <Field label="বিভাগ" value={caseItem.division || '—'} />
+                <Field label="জেলা" value={caseItem.district || caseItem.courtLocation || '—'} />
+                <Field label="আদালতের ধরন" value={courtKind} />
+                <Field label="আদালত" value={caseItem.courtName || '—'} />
+                <Field label="বিচারক" value={caseItem.judgeName || '—'} />
+                <Field label="মামলার ধরন" value={caseItem.caseType || '—'} />
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-2xl">
+            <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+              <h2 className="font-semibold">পক্ষ ও উকিল</h2>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-2 text-sm">
+                <Field label="বাদী" value={caseItem.plaintiff || '—'} />
+                <Field label="বিবাদী" value={caseItem.defendant || '—'} />
+                <Field
+                  label="বাদীপক্ষের উকিল"
+                  value={
+                    caseItem.plaintiffLawyerName ||
                     (caseItem.plaintiffLawyerId ? getLawyerById(caseItem.plaintiffLawyerId)?.fullName : '') ||
-                    '— (এখনো নেই)',
-                ],
-                [
-                  'বিবাদীপক্ষের উকিল',
-                  caseItem.defendantLawyerName ||
+                    '— (এখনো নেই)'
+                  }
+                />
+                <Field
+                  label="বিবাদীপক্ষের উকিল"
+                  value={
+                    caseItem.defendantLawyerName ||
                     (caseItem.defendantLawyerId ? getLawyerById(caseItem.defendantLawyerId)?.fullName : '') ||
-                    '— (এখনো নেই)',
-                ],
-              ].map(([k, v]) => (
-                <div key={k as string}>
-                  <dt className="text-muted">{k}</dt>
-                  <dd className="font-medium text-ink">{v}</dd>
+                    '— (এখনো নেই)'
+                  }
+                />
+                <Field label="মালিক উকিল" value={owner?.fullName || user?.name || '—'} />
+              </dl>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-2xl">
+            <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+              <h2 className="font-semibold">তারিখ ও নোট</h2>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <dl className="grid gap-4 sm:grid-cols-2 text-sm">
+                <Field label="দাখিলের তারিখ" value={formatDate(caseItem.filingDate)} />
+                <Field label="পরবর্তী শুনানি" value={formatDate(caseItem.nextHearingDate)} />
+                <Field label="সেদিনের কাজ" value={caseItem.nextHearingPurpose || '—'} />
+              </dl>
+              <Note label="বিবরণ" value={caseItem.description} />
+              <Note label="গুরুত্বপূর্ণ নোট" value={caseItem.importantNotes} />
+              {canSeePrivate ? (
+                <div className="rounded-xl border border-danger/20 bg-danger/5 p-3">
+                  <p className="text-xs font-semibold uppercase text-danger">ব্যক্তিগত নোট</p>
+                  <p className="mt-1 text-sm text-ink">{caseItem.privateNotes || '—'}</p>
                 </div>
-              ))}
-            </dl>
-            <div className="mt-4">
-              <p className="text-sm text-muted">Description</p>
-              <p className="mt-1 text-sm leading-relaxed">{caseItem.description || '—'}</p>
-            </div>
-            <div className="mt-4">
-              <p className="text-sm text-muted">Important Notes</p>
-              <p className="mt-1 text-sm">{caseItem.importantNotes || '—'}</p>
-            </div>
-            {canSeePrivate && (
-              <div className="mt-4 rounded-lg border border-danger/20 bg-danger/5 p-3">
-                <p className="text-xs font-semibold uppercase text-danger">Private Notes (authorized only)</p>
-                <p className="mt-1 text-sm">{caseItem.privateNotes || '—'}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <h2 className="font-semibold">Assigned Staff</h2>
+          <Card className="overflow-hidden rounded-2xl">
+            <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+              <h2 className="font-semibold">দায়িত্বপ্রাপ্ত স্টাফ</h2>
             </CardHeader>
             <CardContent className="space-y-3">
               {assignedIds.length === 0 && (
@@ -252,9 +292,9 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <h2 className="font-semibold">Hearings</h2>
+          <Card className="overflow-hidden rounded-2xl">
+            <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+              <h2 className="font-semibold">শুনানি</h2>
             </CardHeader>
             <CardContent className="space-y-2">
               {caseHearings.length === 0 && caseItem.nextHearingDate && (
@@ -279,10 +319,98 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
         </div>
       </div>
 
+      {(canEditHearing || canAddNotes || canDocs) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {canEditHearing && (
+            <Card>
+              <CardHeader>
+                <h2 className="font-semibold">পরবর্তী শুনানির তারিখ</h2>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input label="তারিখ" type="date" value={hearingDraft} onChange={(e) => setHearingDraft(e.target.value)} />
+                <Input label="সেদিনের কাজ" value={purposeDraft} onChange={(e) => setPurposeDraft(e.target.value)} />
+                <Button
+                  onClick={async () => {
+                    if (!caseItem || !hearingDraft || !purposeDraft.trim()) return
+                    try {
+                      const res = await api<{ data: Case }>(`/cases/${caseItem.id}/next-hearing`, {
+                        method: 'PATCH',
+                        body: { nextHearingDate: hearingDraft, nextHearingPurpose: purposeDraft.trim() },
+                      })
+                      setCaseItem(res.data)
+                      setActionMsg('শুনানির তারিখ সংরক্ষণ হয়েছে।')
+                    } catch (err) {
+                      setActionMsg(err instanceof ApiError ? err.message : 'সংরক্ষণ হয়নি।')
+                    }
+                  }}
+                >
+                  তারিখ সংরক্ষণ
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {canAddNotes && (
+            <Card>
+              <CardHeader>
+                <h2 className="font-semibold">নোট যোগ</h2>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Textarea label="গুরুত্বপূর্ণ নোট" value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} />
+                <Button
+                  onClick={async () => {
+                    if (!caseItem) return
+                    try {
+                      const res = await api<{ data: Case }>(`/cases/${caseItem.id}`, {
+                        method: 'PUT',
+                        body: { importantNotes: noteDraft },
+                      })
+                      setCaseItem(res.data)
+                      setActionMsg('নোট সংরক্ষণ হয়েছে।')
+                    } catch (err) {
+                      setActionMsg(err instanceof ApiError ? err.message : 'সংরক্ষণ হয়নি।')
+                    }
+                  }}
+                >
+                  নোট সংরক্ষণ
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {canDocs && (
+            <Card>
+              <CardHeader>
+                <h2 className="font-semibold">ডকুমেন্ট যোগ</h2>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input label="ফাইলের নাম" value={docName} onChange={(e) => setDocName(e.target.value)} />
+                <Button
+                  onClick={async () => {
+                    if (!caseItem || !docName.trim()) return
+                    try {
+                      const res = await api<{ data: CaseDocument }>('/documents', {
+                        method: 'POST',
+                        body: { caseId: caseItem.id, name: docName.trim(), type: 'Other', fileType: 'PDF' },
+                      })
+                      setCaseDocs((prev) => [res.data, ...prev])
+                      setDocName('')
+                      setActionMsg('ডকুমেন্ট যোগ হয়েছে।')
+                    } catch (err) {
+                      setActionMsg(err instanceof ApiError ? err.message : 'যোগ হয়নি।')
+                    }
+                  }}
+                >
+                  যোগ করুন
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold">Documents</h2>
+        <Card className="overflow-hidden rounded-2xl">
+          <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+            <h2 className="font-semibold">ডকুমেন্ট</h2>
           </CardHeader>
           <CardContent className="space-y-2">
             {caseDocs.length === 0 && <p className="text-sm text-muted">কোনো ডকুমেন্ট নেই।</p>}
@@ -303,9 +431,9 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold">Tasks</h2>
+        <Card className="overflow-hidden rounded-2xl">
+          <CardHeader className="border-b border-border/70 bg-slate-panel/40">
+            <h2 className="font-semibold">টাস্ক</h2>
           </CardHeader>
           <CardContent className="space-y-2">
             {caseTasks.length === 0 && <p className="text-sm text-muted">কোনো টাস্ক নেই।</p>}
@@ -316,11 +444,49 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                   <Badge variant={statusBadgeVariant(t.status)}>{t.status}</Badge>
                 </div>
                 <p className="text-xs text-muted">Due: {formatDate(t.dueDate)}</p>
+                {canTasks && t.status !== 'Completed' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={async () => {
+                      try {
+                        const res = await api<{ data: Task }>(`/tasks/${t.id}/status`, {
+                          method: 'PATCH',
+                          body: { status: 'Completed' },
+                        })
+                        setCaseTasks((prev) => prev.map((row) => (row.id === t.id ? res.data : row)))
+                      } catch (err) {
+                        setActionMsg(err instanceof ApiError ? err.message : 'টাস্ক আপডেট হয়নি।')
+                      }
+                    }}
+                  >
+                    সম্পন্ন
+                  </Button>
+                )}
               </div>
             ))}
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-panel/50 px-3 py-2.5">
+      <dt className="text-xs font-medium text-muted">{label}</dt>
+      <dd className="mt-0.5 font-semibold text-ink">{value || '—'}</dd>
+    </div>
+  )
+}
+
+function Note({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="mt-1 text-sm leading-relaxed text-ink">{value || '—'}</p>
     </div>
   )
 }

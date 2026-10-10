@@ -192,6 +192,17 @@ export function getCourtsByType(district: string, courtType: string) {
   return filtered.length > 0 ? filtered : courts
 }
 
+export function inferCourtType(courtName?: string) {
+  if (!courtName) return ''
+  const hit = COURT_TYPES.find((t) => t.match.test(courtName))
+  return hit?.value || ''
+}
+
+export function courtTypeLabel(value?: string) {
+  if (!value) return ''
+  return COURT_TYPES.find((t) => t.value === value)?.label || value
+}
+
 export function matchesCourtType(courtName: string | undefined, courtType: string) {
   if (!courtType) return true
   if (!courtName) return false

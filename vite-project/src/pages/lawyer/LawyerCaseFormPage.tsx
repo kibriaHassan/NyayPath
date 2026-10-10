@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import {
   BdLocationFilters,
   type BdLocationFilterValues,
@@ -10,7 +11,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { cases, staffMembers } from '@/data/mock'
 import { api, ApiError } from '@/lib/api'
-import { findDivisionByDistrict } from '@/lib/bdLocations'
+import { courtTypeLabel, findDivisionByDistrict, inferCourtType } from '@/lib/bdLocations'
 import { caseNumberHint, normalizeCaseNumber } from '@/lib/caseNumber'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -28,6 +29,7 @@ type MatchPreview = {
   defendantLawyerId?: string
   plaintiffLawyerName?: string
   defendantLawyerName?: string
+  canOpen?: boolean
 }
 
 type FormState = {
@@ -110,7 +112,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
         status: c.status || 'Active',
         division: c.division || findDivisionByDistrict(district) || '',
         district,
-        courtType: '',
+        courtType: c.courtType || inferCourtType(c.courtName),
         courtName: c.courtName || '',
         courtLocation: c.courtLocation || district,
         filingDate: c.filingDate || '',
@@ -136,29 +138,29 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
   useEffect(() => {
     if (mode === 'edit') return
     const num = normalizeCaseNumber(form.caseNumber)
-    if (!num.ok || !form.division || !form.district || !form.courtName) {
+    const ready =
+      num.ok &&
+      form.caseType &&
+      form.division &&
+      form.district &&
+      form.courtType &&
+      form.courtName.trim()
+    if (!ready) {
       setMatch(null)
       return
     }
     let cancelled = false
     const qs = new URLSearchParams({
       q: num.value,
+      caseType: form.caseType,
       division: form.division,
       district: form.district,
-      court: form.courtName,
+      courtType: form.courtType,
+      court: form.courtName.trim(),
     })
     api<{ data: MatchPreview | null }>(`/cases/match?${qs}`)
       .then((res) => {
-        if (cancelled) return
-        const m = res.data
-        setMatch(m)
-        if (!m) return
-        setForm((f) => ({
-          ...f,
-          caseTitle: f.caseTitle || m.caseTitle || '',
-          plaintiff: f.plaintiff || m.plaintiff || '',
-          defendant: f.defendant || m.defendant || '',
-        }))
+        if (!cancelled) setMatch(res.data)
       })
       .catch(() => {
         if (!cancelled) setMatch(null)
@@ -166,7 +168,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
     return () => {
       cancelled = true
     }
-  }, [mode, form.caseNumber, form.division, form.district, form.courtName])
+  }, [mode, form.caseNumber, form.caseType, form.division, form.district, form.courtType, form.courtName])
 
   const set = (key: keyof FormState, value: string) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -273,6 +275,10 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
       setError('বাদী ও বিবাদীর নাম আবশ্যক।')
       return
     }
+    if (mode !== 'edit' && match) {
+      setError('এই মামলাটি আগে এন্ট্রি হয়েছে। দ্বিতীয়বার এন্ট্রি করা যাবে না।')
+      return
+    }
 
     setSaving(true)
     const payload = buildPayload()
@@ -289,7 +295,8 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
         setInfo(res.message || (res.merged ? 'একই মামলায় যোগ হয়েছে।' : 'নতুন মামলা সংরক্ষণ হয়েছে।'))
       }
       setSaved(true)
-      setTimeout(() => navigate('/lawyer/cases'), 900)
+      const home = user?.role === 'STAFF' ? '/staff/cases' : '/lawyer/cases'
+      setTimeout(() => navigate(home), 900)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 400 || err.status === 403 || err.status === 404 || err.status === 409)) {
         setError(err.message)
@@ -340,7 +347,8 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
         })
       }
       setSaved(true)
-      setTimeout(() => navigate('/lawyer/cases'), 900)
+      const home = user?.role === 'STAFF' ? '/staff/cases' : '/lawyer/cases'
+      setTimeout(() => navigate(home), 900)
     }
     setSaving(false)
   }
@@ -348,22 +356,28 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
   const numberHint = caseNumberHint(form.caseNumber)
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-semibold">
-          {mode === 'edit' ? 'Edit Case' : 'Add New Case'}
+    <div className="mx-auto max-w-4xl space-y-5 pb-8">
+      {saved && (
+        <div className="fixed right-4 top-4 z-50 flex max-w-sm items-start gap-3 rounded-2xl bg-[#146a74] px-4 py-3 text-white shadow-xl">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">সংরক্ষণ হয়েছে</p>
+            <p className="text-sm text-white/90">{info || 'মামলা সেভ হয়েছে।'}</p>
+          </div>
+        </div>
+      )}
+      <div className="rounded-2xl border border-border/80 bg-white p-5 shadow-sm">
+        <h1 className="font-display text-2xl font-semibold text-ink">
+          {mode === 'edit' ? 'মামলা আপডেট' : 'নতুন মামলা'}
         </h1>
-        <p className="text-sm text-muted">
-          মামলা নম্বর সবসময় <strong className="text-ink">1/2026</strong> ফরম্যাটে —{' '}
-          <strong className="text-ink">1/26</strong> নয়। একই নম্বর+আদালতে অন্য পক্ষ আগে এন্ট্রি
-          করলে উকিলের নাম অটো বসবে।
+        <p className="mt-1 text-sm text-muted">
+          মামলার ধরন, বিভাগ, জেলা, আদালতের ধরন ও আদালত — পাঁচটা একসাথে মিললে আগের এন্ট্রি দেখাবে। একটাও আলাদা হলে নতুন মামলা হিসেবে যাবে।
         </p>
       </div>
 
-      <form
-        onSubmit={onSubmit}
-        className="grid gap-4 rounded-xl border border-border bg-white p-5 shadow-sm sm:grid-cols-2"
-      >
+      <form onSubmit={onSubmit} className="space-y-4">
+        <section className="grid gap-4 rounded-2xl border border-border/80 bg-white p-5 shadow-sm sm:grid-cols-2">
+          <h2 className="sm:col-span-2 font-display text-lg font-semibold text-ink">মামলার পরিচয়</h2>
         <div>
           <Input
             label="মামলা নম্বর"
@@ -408,29 +422,49 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           }))}
         />
 
-        <div className="sm:col-span-2 space-y-2">
-          <p className="text-sm font-medium text-ink">বিভাগ · জেলা · আদালতের ধরন · আদালত</p>
-          <BdLocationFilters mode="entry" value={locationValue} onChange={onLocationChange} />
-        </div>
+        </section>
 
-        {match && (
-          <div className="sm:col-span-2 rounded-xl border border-teal/30 bg-teal/5 px-4 py-3 text-sm">
-            <p className="font-semibold text-ink">এই মামলা আগে এন্ট্রি আছে</p>
-            <p className="mt-1 text-muted">
-              {match.caseNumber} — {match.caseTitle || 'শিরোনাম নেই'}
-            </p>
-            <p className="mt-1 text-ink">
-              বাদীপক্ষের উকিল: <strong>{match.plaintiffLawyerName || 'এখনো নেই'}</strong>
-              {' · '}
-              বিবাদীপক্ষের উকিল: <strong>{match.defendantLawyerName || 'এখনো নেই'}</strong>
-            </p>
-            {opposite && form.representingSide && (
-              <p className="mt-2 font-medium text-teal">
-                আপনি সেভ করলে {opposite.side}ের উকিল অটো থাকবে: {opposite.name}
-              </p>
-            )}
+        <section className="space-y-3 rounded-2xl border border-border/80 bg-white p-5 shadow-sm">
+          <h2 className="font-display text-lg font-semibold text-ink">আদালত</h2>
+          <p className="text-xs text-muted">বিভাগ, জেলা, আদালতের ধরন ও আদালত — চারটাই এই মামলার ঠিকানা।</p>
+          <BdLocationFilters mode="entry" value={locationValue} onChange={onLocationChange} />
+        </section>
+
+        {match && mode !== 'edit' && (
+          <div className="rounded-2xl border-2 border-amber-500 bg-amber-50 px-5 py-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-display text-lg font-semibold text-amber-950">এই মামলাটি আগে এন্ট্রি হয়েছে</p>
+                <p className="mt-1 text-sm text-amber-900">
+                  মামলার ধরন, বিভাগ, জেলা, আদালতের ধরন ও আদালত — পাঁচটাই মিলেছে। দ্বিতীয়বার এন্ট্রি হবে না।
+                </p>
+                <p className="mt-3 text-sm font-semibold text-ink">
+                  {match.caseNumber} — {match.caseTitle || 'শিরোনাম নেই'}
+                </p>
+                <p className="mt-1 text-sm text-ink">
+                  ধরন: {match.caseType || form.caseType} · আদালত: {form.courtName}
+                  {form.courtType ? ` · ${courtTypeLabel(form.courtType)}` : ''}
+                </p>
+                <p className="mt-2 text-sm text-ink">
+                  বাদীপক্ষের উকিল: <strong>{match.plaintiffLawyerName || 'এখনো নেই'}</strong>
+                  {' · '}
+                  বিবাদীপক্ষের উকিল: <strong>{match.defendantLawyerName || 'এখনো নেই'}</strong>
+                </p>
+                {match.canOpen ? (
+                  <Link to={`/lawyer/cases/${match.id}`} className="mt-3 inline-flex text-sm font-semibold text-[#1d4ed8] hover:underline">
+                    আগের মামলাটি খুলুন
+                  </Link>
+                ) : null}
+              </div>
+            </div>
           </div>
         )}
+
+        <section className="grid gap-4 rounded-2xl border border-border/80 bg-white p-5 shadow-sm sm:grid-cols-2">
+          <h2 className="sm:col-span-2 font-display text-lg font-semibold text-ink">পক্ষ, তারিখ ও নোট</h2>
 
         <Input
           label="Filing Date"
@@ -537,17 +571,16 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
             onChange={(e) => set('importantNotes', e.target.value)}
           />
         </div>
-        {error && <p className="sm:col-span-2 text-sm text-danger">{error}</p>}
-        {info && <p className="sm:col-span-2 text-sm text-teal">{info}</p>}
+        {error && <p className="sm:col-span-2 text-sm font-semibold text-danger">{error}</p>}
         <div className="flex flex-wrap gap-2 sm:col-span-2">
-          <Button type="submit" disabled={saving}>
-            {saving ? 'সংরক্ষণ হচ্ছে...' : mode === 'edit' ? 'Update Case' : 'Save Case'}
+          <Button type="submit" disabled={saving || (mode !== 'edit' && Boolean(match))}>
+            {saving ? 'সংরক্ষণ হচ্ছে...' : mode === 'edit' ? 'আপডেট করুন' : 'মামলা সেভ করুন'}
           </Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>
-            Cancel
+            বাতিল
           </Button>
-          {saved && <span className="self-center text-sm text-success">সংরক্ষণ হয়েছে...</span>}
         </div>
+        </section>
       </form>
     </div>
   )

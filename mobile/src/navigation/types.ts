@@ -49,14 +49,14 @@ export type RootStackParamList = {
 
 export type LawyerTabParamList = {
   Dashboard: undefined
-  Cases: undefined
+  Cases: { unassigned?: boolean } | undefined
   CaseCalendar: undefined
   DayCases: { filter?: 'today' | 'next' | 'pending' } | undefined
 }
 
 export type StaffTabParamList = {
   Dashboard: undefined
-  Cases: undefined
+  Cases: { unassigned?: boolean } | undefined
   CaseCalendar: undefined
   DayCases: { filter?: 'today' | 'next' | 'pending' } | undefined
   Profile: undefined

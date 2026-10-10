@@ -8,6 +8,7 @@ import { StatusPill } from '../components/ui/MenuRow'
 import { Screen } from '../components/ui/Screen'
 import { ScreenHeader } from '../components/ui/ScreenHeader'
 import { api, ApiError } from '../api/client'
+import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
 import type { RootStackParamList } from '../navigation/types'
@@ -41,7 +42,13 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
   const [item, setItem] = useState<CaseData>((route.params.preview as CaseData) || { id: route.params.id })
   const [loading, setLoading] = useState(true)
   const [hearingDate, setHearingDate] = useState('')
+  const [purpose, setPurpose] = useState('')
+  const [note, setNote] = useState('')
+  const { allow, isStaff } = useStaffPerms()
   const isLawyer = user?.role === 'LAWYER'
+  const canEditCase = allow('editCases')
+  const canHearing = allow('editHearingDates') || allow('editCases')
+  const canNotes = isStaff && allow('addNotes')
 
   useEffect(() => {
     const apply = (data: CaseData) => {
@@ -79,12 +86,22 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
     void load()
   }, [route.params.id, user?.id])
 
+  const saveNote = async () => {
+    try {
+      await api(`/cases/${item.id}`, { method: 'PUT', body: { importantNotes: note } })
+      setItem((prev) => ({ ...prev, importantNotes: note }))
+      Alert.alert(t('saved'))
+    } catch (e) {
+      Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
+    }
+  }
+
   const updateHearing = async () => {
-    if (!hearingDate.trim()) return
+    if (!hearingDate.trim() || !purpose.trim()) return
     try {
       await api(`/cases/${item.id}/next-hearing`, {
         method: 'PATCH',
-        body: { nextHearingDate: hearingDate.trim() },
+        body: { nextHearingDate: hearingDate.trim(), nextHearingPurpose: purpose.trim() },
       })
       setItem((prev) => ({ ...prev, nextHearingDate: hearingDate.trim() }))
       Alert.alert(t('saved'))
@@ -145,28 +162,41 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
         ) : null}
       </AppCard>
 
-      {isLawyer ? (
+      {canHearing || canEditCase || canNotes || isLawyer ? (
         <View style={{ gap: 10, marginTop: 14 }}>
-          <AppCard style={{ gap: 10 }}>
-            <AppInput
-              label={`${t('nextHearing')} (YYYY-MM-DD)`}
-              value={hearingDate}
-              onChangeText={setHearingDate}
+          {canHearing ? (
+            <AppCard style={{ gap: 10 }}>
+              <AppInput
+                label={`${t('nextHearing')} (YYYY-MM-DD)`}
+                value={hearingDate}
+                onChangeText={setHearingDate}
+              />
+              <AppInput label={t('description')} value={purpose} onChangeText={setPurpose} />
+              <AppButton title={t('updateHearing')} onPress={updateHearing} fullWidth />
+            </AppCard>
+          ) : null}
+          {canNotes ? (
+            <AppCard style={{ gap: 10 }}>
+              <AppInput label={t('importantNotes')} value={note} onChangeText={setNote} />
+              <AppButton title={t('save')} onPress={() => void saveNote()} fullWidth />
+            </AppCard>
+          ) : null}
+          {canEditCase ? (
+            <AppButton
+              title={t('editCase')}
+              onPress={() =>
+                navigation.navigate('CaseForm', {
+                  mode: 'edit',
+                  id: item.id,
+                  preview: item,
+                })
+              }
+              fullWidth
             />
-            <AppButton title={t('updateHearing')} onPress={updateHearing} fullWidth />
-          </AppCard>
-          <AppButton
-            title={t('editCase')}
-            onPress={() =>
-              navigation.navigate('CaseForm', {
-                mode: 'edit',
-                id: item.id,
-                preview: item,
-              })
-            }
-            fullWidth
-          />
-          <AppButton title={t('withdrawCase')} variant="danger" onPress={withdraw} fullWidth />
+          ) : null}
+          {isLawyer ? (
+            <AppButton title={t('withdrawCase')} variant="danger" onPress={withdraw} fullWidth />
+          ) : null}
         </View>
       ) : null}
     </Screen>

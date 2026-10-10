@@ -4,10 +4,12 @@ import { useFocusEffect } from '@react-navigation/native'
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Avatar } from '../components/ui/Avatar'
 import { DonutChart, type DonutSlice } from '../components/ui/DonutChart'
 import { AppMenuButton } from '../components/nav/AppDrawer'
 import { api } from '../api/client'
+import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
 import {
@@ -50,8 +52,10 @@ export function DashboardScreen({ navigation }: Props) {
   const user = useAuthStore((s) => s.user)
   const insets = useSafeAreaInsets()
   const [cases, setCases] = useState<CaseHearingRow[]>([])
+  const [staffCount, setStaffCount] = useState(0)
   const [nowTick, setNowTick] = useState(() => new Date())
   const isLawyer = user?.role === 'LAWYER'
+  const { allow } = useStaffPerms()
   const dark = theme === 'dark'
   const nav = navigation as {
     navigate: (n: string, p?: object) => void
@@ -73,12 +77,22 @@ export function DashboardScreen({ navigation }: Props) {
   const activeCount = statusSlices[0].value + statusSlices[1].value
   const activePct = cases.length ? Math.round((activeCount / cases.length) * 100) : 0
 
+  const unassignedCount = useMemo(
+    () => cases.filter((item) => !(item.assignedStaffIds || []).length).length,
+    [cases],
+  )
+
   const load = useCallback(() => {
     setNowTick(new Date())
     api<{ data: CaseHearingRow[] }>('/cases')
       .then((res) => setCases(res.data || []))
       .catch(() => setCases([]))
-  }, [])
+    if (user?.role === 'LAWYER') {
+      api<{ data: { active?: boolean }[] }>('/staff')
+        .then((res) => setStaffCount((res.data || []).filter((row) => row.active !== false).length))
+        .catch(() => setStaffCount(0))
+    }
+  }, [user?.role])
 
   useFocusEffect(
     useCallback(() => {
@@ -108,7 +122,7 @@ export function DashboardScreen({ navigation }: Props) {
     { key: 'next', label: t('nextDayCases'), icon: 'calendar', color: TILE.teal, onPress: () => goDay('next') },
     { key: 'pending', label: t('pendingEntry'), icon: 'alert-circle', color: TILE.red, onPress: () => goDay('pending') },
     { key: 'cases', label: t('cases'), icon: 'briefcase', color: TILE.purple, onPress: () => nav.navigate('Cases') },
-    ...(isLawyer
+    ...(isLawyer || allow('addCase')
       ? [{ key: 'add', label: t('addCase'), icon: 'add-circle' as const, color: TILE.green, onPress: () => root()?.navigate('CaseForm', { mode: 'create' }) }]
       : []),
     { key: 'tasks', label: t('tasks'), icon: 'checkbox', color: TILE.blue, onPress: () => root()?.navigate('Tasks') },
@@ -131,10 +145,11 @@ export function DashboardScreen({ navigation }: Props) {
   ]
 
   const sideCards = [
-    { key: 'today', label: t('todayCases'), value: parts.todayCases.length, bg: '#FFF6DE', ink: '#B45309', onPress: () => goDay('today') },
-    { key: 'next', label: t('nextDayCases'), value: parts.nextCases.length, bg: '#FDE8F3', ink: '#BE185D', onPress: () => goDay('next') },
-    { key: 'pending', label: t('pendingEntry'), value: parts.pendingCases.length, bg: '#E7FBF6', ink: '#0F766E', onPress: () => goDay('pending') },
+    { key: 'today', label: t('todayCases'), value: parts.todayCases.length, bg: '#FFF6DE', ink: '#B45309', bar: '#F59A3A', onPress: () => goDay('today') },
+    { key: 'next', label: t('nextDayCases'), value: parts.nextCases.length, bg: '#FDE8F3', ink: '#BE185D', bar: '#EC4899', onPress: () => goDay('next') },
+    { key: 'pending', label: t('pendingEntry'), value: parts.pendingCases.length, bg: '#E7FBF6', ink: '#0F766E', bar: '#14B8A6', onPress: () => goDay('pending') },
   ]
+  const sideMax = Math.max(1, ...sideCards.map((card) => card.value))
 
   const cardBg = dark ? c.card : '#ffffff'
   const pageHint = dark ? c.textMuted : '#64748b'
@@ -217,14 +232,50 @@ export function DashboardScreen({ navigation }: Props) {
               onPress={card.onPress}
               style={[styles.sideCard, { backgroundColor: dark ? c.bgElevated : card.bg, borderColor: c.border }]}
             >
-              <Text style={{ color: dark ? c.textMuted : card.ink, fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
+              <Text style={{ color: dark ? c.textMuted : card.ink, fontSize: 11, fontWeight: '700' }} numberOfLines={1}>
                 {card.label}
               </Text>
-              <Text style={{ color: dark ? c.text : card.ink, fontSize: 22, fontWeight: '800' }}>{card.value}</Text>
+              <Text style={{ color: dark ? c.text : card.ink, fontSize: 20, fontWeight: '800' }}>{card.value}</Text>
+              <View style={[styles.barTrack, { backgroundColor: dark ? '#243645' : 'rgba(255,255,255,0.75)' }]}>
+                {card.value > 0 ? (
+                  <View
+                    style={[
+                      styles.barFill,
+                      { width: `${Math.max(12, Math.round((card.value / sideMax) * 100))}%`, backgroundColor: card.bar },
+                    ]}
+                  />
+                ) : null}
+              </View>
             </Pressable>
           ))}
         </View>
       </View>
+
+      {isLawyer ? (
+        <View style={styles.statRow}>
+          <StatBubble
+            icon="briefcase"
+            colors={['#1D4ED8', '#60A5FA']}
+            value={cases.length}
+            label={t('totalCases')}
+            onPress={() => nav.navigate('Cases')}
+          />
+          <StatBubble
+            icon="people"
+            colors={['#C2410C', '#FB923C']}
+            value={staffCount}
+            label={t('totalStaff')}
+            onPress={() => root()?.navigate('StaffList')}
+          />
+          <StatBubble
+            icon="person"
+            colors={['#047857', '#34D399']}
+            value={unassignedCount}
+            label={t('selfManaged')}
+            onPress={() => nav.navigate('Cases', { unassigned: true })}
+          />
+        </View>
+      ) : null}
 
       <View style={[styles.grid, { marginTop: 16 }]}>
         {secondaryTiles.map((tile) => (
@@ -233,6 +284,36 @@ export function DashboardScreen({ navigation }: Props) {
       </View>
       </ScrollView>
     </View>
+  )
+}
+
+function StatBubble({
+  icon,
+  colors,
+  value,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  colors: readonly [string, string]
+  value: number
+  label: string
+  onPress: () => void
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.statItem}>
+      <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statShape}>
+        <View style={styles.statOrb} />
+        <View style={styles.statNotch} />
+        <View style={styles.statIcon}>
+          <Ionicons name={icon} size={18} color="#fff" />
+        </View>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statLabel} numberOfLines={2}>
+          {label}
+        </Text>
+      </LinearGradient>
+    </Pressable>
   )
 }
 
@@ -316,6 +397,56 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   sideCol: { flex: 0.9, gap: 8 },
+  statRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  statItem: { flex: 1 },
+  statShape: {
+    minHeight: 118,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 10,
+    borderBottomRightRadius: 28,
+    borderBottomLeftRadius: 10,
+    paddingHorizontal: 10,
+    paddingTop: 12,
+    paddingBottom: 12,
+    overflow: 'hidden',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  statOrb: {
+    position: 'absolute',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    top: -22,
+    right: -16,
+  },
+  statNotch: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    bottom: 10,
+    left: -10,
+  },
+  statIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: { marginTop: 8, color: '#fff', fontSize: 22, fontWeight: '800' },
+  statLabel: { marginTop: 2, color: 'rgba(255,255,255,0.92)', fontSize: 11, fontWeight: '700', lineHeight: 14 },
   sideCard: {
     flex: 1,
     borderRadius: 16,
@@ -323,5 +454,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     justifyContent: 'center',
+    gap: 2,
   },
+  barTrack: { height: 6, borderRadius: 6, overflow: 'hidden', marginTop: 2 },
+  barFill: { height: 6, borderRadius: 6 },
 })

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { getStaffById, cases as mockCases } from '@/data/mock'
 import { api, ApiError } from '@/lib/api'
+import { fileToCompressedDataUrl } from '@/lib/imageUpload'
 import { useAuthStore } from '@/store/authStore'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
 import type { Staff, StaffPermissions } from '@/types'
 
 const labels: Record<keyof StaffPermissions, string> = {
@@ -26,11 +29,20 @@ export default function StaffProfilePage() {
   )
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(staff?.name || user?.name || '')
+  const [mobile, setMobile] = useState(staff?.mobile || '')
+  const [photo, setPhoto] = useState(staff?.photo || '')
+  const [photoError, setPhotoError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const load = () => {
     api<{ data: Staff & { lawyerName?: string } }>('/staff/me')
       .then((res) => {
         setStaff(res.data)
+        setName(res.data.name || '')
+        setMobile(res.data.mobile || '')
+        setPhoto(res.data.photo || '')
         updateSessionUser({
           staffCode: res.data.staffCode,
           active: res.data.active !== false,
@@ -44,6 +56,26 @@ export default function StaffProfilePage() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
+
+  const saveProfile = async () => {
+    setBusy('save')
+    setMessage('')
+    setPhotoError('')
+    try {
+      const res = await api<{ data: Staff & { lawyerName?: string } }>('/staff/me', {
+        method: 'PUT',
+        body: { name: name.trim(), mobile: mobile.trim(), photo },
+      })
+      setStaff(res.data)
+      updateSessionUser({ name: name.trim(), photo })
+      setEditing(false)
+      setMessage('প্রোফাইল সংরক্ষণ হয়েছে।')
+    } catch (e) {
+      setPhotoError(e instanceof ApiError ? e.message : 'সংরক্ষণ ব্যর্থ')
+    } finally {
+      setBusy('')
+    }
+  }
 
   const leaveTeam = async () => {
     if (
@@ -100,17 +132,73 @@ export default function StaffProfilePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-4">
-        <img src={staff.photo} alt="" className="h-16 w-16 rounded-full border border-border" />
-        <div>
-          <h1 className="font-display text-2xl font-semibold">
-            {staff.name}{' '}
-            <span className="font-mono text-base font-semibold text-teal">{staff.staffCode}</span>
-          </h1>
-          <p className="text-sm text-muted">{staff.role}</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <img src={photo || staff.photo} alt="" className="h-16 w-16 rounded-full border border-border object-cover" />
+          <div>
+            <h1 className="font-display text-2xl font-semibold">
+              {editing ? 'My Profile' : staff.name}{' '}
+              <span className="font-mono text-base font-semibold text-teal">{staff.staffCode}</span>
+            </h1>
+            <p className="text-sm text-muted">{staff.role}</p>
+          </div>
+          <Badge variant={disabled ? 'danger' : 'success'}>{disabled ? 'Disabled' : 'Active'}</Badge>
         </div>
-        <Badge variant={disabled ? 'danger' : 'success'}>{disabled ? 'Disabled' : 'Active'}</Badge>
+        {!editing ? (
+          <Button type="button" onClick={() => setEditing(true)}>
+            <Pencil className="h-4 w-4" />
+            তথ্য পরিবর্তন
+          </Button>
+        ) : null}
       </div>
+
+      {editing ? (
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold">প্রোফাইল আপডেট</h2>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                setPhotoError('')
+                void fileToCompressedDataUrl(file)
+                  .then(setPhoto)
+                  .catch((err) => setPhotoError(err instanceof Error ? err.message : 'ছবি আপলোড ব্যর্থ'))
+              }}
+            />
+            <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
+              ছবি পরিবর্তন
+            </Button>
+            <Input label="নাম" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input label="মোবাইল" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+            {photoError ? <p className="text-sm text-danger">{photoError}</p> : null}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" disabled={busy === 'save'} onClick={() => void saveProfile()}>
+                {busy === 'save' ? 'সংরক্ষণ হচ্ছে...' : 'সেভ করুন'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setName(staff.name)
+                  setMobile(staff.mobile)
+                  setPhoto(staff.photo)
+                  setPhotoError('')
+                  setEditing(false)
+                }}
+              >
+                বাতিল
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {disabled && (
         <div className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">

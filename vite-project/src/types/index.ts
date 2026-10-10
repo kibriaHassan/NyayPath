@@ -93,6 +93,7 @@ export interface Case {
   /** পাবলিক সার্চ ফিল্টারের জন্য */
   division?: string
   district?: string
+  courtType?: string
   filingDate: string
   status: CaseStatus
   plaintiff: string
