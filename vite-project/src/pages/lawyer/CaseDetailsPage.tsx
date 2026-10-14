@@ -31,7 +31,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { courtTypeLabel, inferCourtType } from '@/lib/bdLocations'
-import { HEARING_PURPOSE_OPTIONS } from '@/lib/courtCalendar'
+import { HEARING_PURPOSE_OPTIONS, pastHearingPurposeOptions } from '@/lib/courtCalendar'
 import { cn, formatDate } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import type { Case, CaseDocument, Hearing, Staff, StaffPermissions, Task } from '@/types'
@@ -146,11 +146,11 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
       return
     }
     const filing = String(caseItem.filingDate || '').slice(0, 10)
-    if (filing && day <= filing) {
+    if (purposeValue !== 'দাখিল তারিখ' && filing && day <= filing) {
       setActionMsg(
         day === filing
           ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
-          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না। দাখিলের পরের তারিখ দিন।',
       )
       return
     }
@@ -162,19 +162,24 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
     if (savingPast) return
     setSavingPast(true)
     try {
-      const res = await api<{ data: Hearing; case: Case }>(`/cases/${caseItem.id}/past-hearings`, {
-        method: 'POST',
-        body: {
-          hearingDate: day,
-          hearingType: purposeValue,
-          notes: pastNotes.trim() || undefined,
+      const res = await api<{ data: Hearing; case: Case; mode?: string }>(
+        `/cases/${caseItem.id}/past-hearings`,
+        {
+          method: 'POST',
+          body: {
+            hearingDate: day,
+            hearingType: purposeValue,
+            notes: pastNotes.trim() || undefined,
+          },
         },
-      })
+      )
       setCaseItem(res.case)
-      setCaseHearings((prev) => {
-        const next = prev.filter((h) => h.id !== res.data.id)
-        return [...next, res.data]
-      })
+      if (res.mode !== 'filing') {
+        setCaseHearings((prev) => {
+          const next = prev.filter((h) => h.id !== res.data.id)
+          return [...next, res.data]
+        })
+      }
       setPastDate('')
       setPastPurpose('')
       setPastCustomPurpose('')
@@ -420,8 +425,9 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                   <div>
                     <p className="text-sm font-bold text-ink">পুরাতন শুনানির তারিখ</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted">
-                      দাখিলের পরের দিন থেকে পরবর্তী তারিখের আগ পর্যন্ত পুরোনো শুনানি যোগ করুন (দাখিলের দিন নয়)। শুধু
-                      উকিল।
+                      {caseItem.filingDate
+                        ? 'দাখিলের পরের তারিখ থেকে পরবর্তী তারিখের আগ পর্যন্ত পুরোনো শুনানি যোগ করুন।'
+                        : 'দাখিল না থাকলে বিবরণে «দাখিল তারিখ» বেছে একবার সেট করতে পারবেন। দাখিল ছাড়াও অন্য পুরাতন তারিখ এন্ট্রি করা যাবে।'}
                     </p>
                   </div>
                   <Button
@@ -440,13 +446,17 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                       type="date"
                       value={pastDate}
                       onChange={(e) => setPastDate(e.target.value)}
-                      hint="দাখিলের পরের দিন থেকে · আজকের আগে · পরবর্তী তারিখের আগে (দাখিলের দিন নয়)"
+                      hint={
+                        caseItem.filingDate
+                          ? 'দাখিলের পর · আজকের আগে · পরবর্তী তারিখের আগে'
+                          : 'আজকের আগে · পরবর্তী তারিখের আগে — দাখিল না থাকলেও এন্ট্রি করা যাবে'
+                      }
                     />
                     <Select
                       label="সেদিন কী হয়েছিল"
                       value={pastPurpose}
                       placeholder="রায়, আদেশ…"
-                      options={HEARING_PURPOSE_OPTIONS}
+                      options={pastHearingPurposeOptions(Boolean(caseItem.filingDate))}
                       onChange={(e) => {
                         setPastPurpose(e.target.value)
                         if (e.target.value !== 'অন্যান্য') setPastCustomPurpose('')

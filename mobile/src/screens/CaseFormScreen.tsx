@@ -21,7 +21,7 @@ import {
 } from '../data/locations'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
-import { HEARING_PURPOSE_OPTIONS } from '../utils/courtCalendar'
+import { HEARING_PURPOSE_OPTIONS, pastHearingPurposeOptions } from '../utils/courtCalendar'
 import type { RootStackParamList } from '../navigation/types'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CaseForm'>
@@ -83,6 +83,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
   const [pastNotes, setPastNotes] = useState('')
   const [savingPast, setSavingPast] = useState(false)
   const [pastMsg, setPastMsg] = useState('')
+  const [filingLocked, setFilingLocked] = useState(Boolean(initial.filingDate))
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isLawyer = user?.role === 'LAWYER'
 
@@ -131,6 +132,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
           court: String(row.courtName || ''),
         })
         setFilingDate(String(row.filingDate || ''))
+        setFilingLocked(Boolean(row.filingDate))
         setNextHearingDate(String(row.nextHearingDate || ''))
         setPlaintiff(String(row.plaintiff || ''))
         setDefendant(String(row.defendant || ''))
@@ -198,13 +200,14 @@ export function CaseFormScreen({ navigation, route }: Props) {
     if (!loc.division || !loc.district || !loc.courtType || !loc.court.trim()) {
       return t('needLocationAll')
     }
-    if (!filingDate.trim() || !nextHearingDate.trim()) return t('needDates')
+    if (!nextHearingDate.trim()) return t('needDates')
     const today = new Date()
     const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
     const filing = filingDate.trim().slice(0, 10)
     const next = nextHearingDate.trim().slice(0, 10)
-    if (filing > todayKey) return t('filingDateFutureError')
+    if (filing && filing > todayKey) return t('filingDateFutureError')
     if (next <= todayKey) return t('nextHearingPastError')
+    if (filing && next <= filing) return 'পরবর্তী শুনানির তারিখ দাখিলের তারিখের পরের হতে হবে।'
     try {
       const nextDay = new Date(`${next}T00:00:00`)
       if (nextDay.getDay() === 5 || nextDay.getDay() === 6) return t('courtHolidayError')
@@ -383,16 +386,21 @@ export function CaseFormScreen({ navigation, route }: Props) {
           ) : null}
 
           <DateField
-            label={t('filingDate')}
-            required
+            label={t('filingDateOptional')}
             value={filingDate}
-            onChange={setFilingDate}
+            onChange={(v) => {
+              if (filingLocked) return
+              setFilingDate(v)
+            }}
             placeholder="2025-11-12"
             maxDate={(() => {
               const d = new Date()
               return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
             })()}
           />
+          <Text style={{ color: c.textMuted, fontSize: 11, fontWeight: '600', marginTop: -4 }}>
+            {filingLocked ? t('filingDateLockedHint') : t('filingDateOptionalHint')}
+          </Text>
 
           {isLawyer ? (
             <View
@@ -424,14 +432,14 @@ export function CaseFormScreen({ navigation, route }: Props) {
                         label={t('pastHearingDate')}
                         value={pastDate}
                         onChange={setPastDate}
-                        skipHolidays
+                        skipHolidays={pastPurpose !== 'দাখিল তারিখ'}
                         placeholder="YYYY-MM-DD"
                       />
                       <SelectField
                         label={t('description')}
                         value={pastPurpose}
                         placeholder="সেদিন কী হয়েছিল"
-                        options={HEARING_PURPOSE_OPTIONS}
+                        options={pastHearingPurposeOptions(Boolean(filingDate.trim()))}
                         onChange={(v) => {
                           setPastPurpose(v)
                           if (v !== 'অন্যান্য') setPastCustomPurpose('')
@@ -469,7 +477,7 @@ export function CaseFormScreen({ navigation, route }: Props) {
                               return
                             }
                             const filing = filingDate.trim().slice(0, 10)
-                            if (filing && day <= filing) {
+                            if (purposeValue !== 'দাখিল তারিখ' && filing && day <= filing) {
                               setPastMsg(
                                 day === filing
                                   ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
@@ -480,19 +488,28 @@ export function CaseFormScreen({ navigation, route }: Props) {
                             setSavingPast(true)
                             setPastMsg('')
                             try {
-                              await api(`/cases/${caseId}/past-hearings`, {
-                                method: 'POST',
-                                body: {
-                                  hearingDate: day,
-                                  hearingType: purposeValue,
-                                  notes: pastNotes.trim() || undefined,
+                              const res = await api<{ case?: { filingDate?: string }; mode?: string }>(
+                                `/cases/${caseId}/past-hearings`,
+                                {
+                                  method: 'POST',
+                                  body: {
+                                    hearingDate: day,
+                                    hearingType: purposeValue,
+                                    notes: pastNotes.trim() || undefined,
+                                  },
                                 },
-                              })
+                              )
+                              if (res.mode === 'filing' || res.case?.filingDate) {
+                                setFilingDate(res.case?.filingDate || day)
+                                setFilingLocked(true)
+                                setPastMsg('দাখিলের তারিখ সংরক্ষণ হয়েছে।')
+                              } else {
+                                setPastMsg(t('pastHearingSaved'))
+                              }
                               setPastDate('')
                               setPastPurpose('')
                               setPastCustomPurpose('')
                               setPastNotes('')
-                              setPastMsg(t('pastHearingSaved'))
                             } catch (e) {
                               setPastMsg(e instanceof ApiError ? e.message : t('error'))
                             } finally {

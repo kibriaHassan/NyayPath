@@ -13,7 +13,7 @@ import { cases, staffMembers } from '@/data/mock'
 import { api, ApiError } from '@/lib/api'
 import { courtTypeLabel, findDivisionByDistrict, inferCourtType } from '@/lib/bdLocations'
 import { caseNumberHint, normalizeCaseNumber } from '@/lib/caseNumber'
-import { HEARING_PURPOSE_OPTIONS } from '@/lib/courtCalendar'
+import { HEARING_PURPOSE_OPTIONS, pastHearingPurposeOptions } from '@/lib/courtCalendar'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import type { Case, Hearing, Staff } from '@/types'
@@ -96,6 +96,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
   const [pastList, setPastList] = useState<Hearing[]>([])
   const [savingPast, setSavingPast] = useState(false)
   const [pastMsg, setPastMsg] = useState('')
+  const [filingLocked, setFilingLocked] = useState(false)
 
   const todayKey = (() => {
     const d = new Date()
@@ -154,6 +155,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
         description: c.description || '',
         importantNotes: c.importantNotes || '',
       })
+      setFilingLocked(Boolean(c.filingDate))
     }
     api<{ data: Case }>(`/cases/${id}`)
       .then((res) => apply(res.data))
@@ -296,18 +298,22 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
       setError('আপনি বাদীপক্ষ নাকি বিবাদীপক্ষ — নির্বাচন করুন।')
       return
     }
-    if (!form.filingDate || !form.nextHearingDate) {
-      setError('দাখিলের তারিখ ও পরবর্তী শুনানির তারিখ আবশ্যক।')
+    if (!form.nextHearingDate) {
+      setError('পরবর্তী শুনানির তারিখ আবশ্যক। দাখিলের তারিখ ঐচ্ছিক।')
       return
     }
     const filing = form.filingDate.slice(0, 10)
     const next = form.nextHearingDate.slice(0, 10)
-    if (filing > todayKey) {
+    if (filing && filing > todayKey) {
       setError('দাখিলের তারিখ আজ বা আজকের আগের হতে হবে। ভবিষ্যতের তারিখ দেওয়া যাবে না।')
       return
     }
     if (next <= todayKey) {
       setError('পরবর্তী শুনানির তারিখ আজকের পরের দিন হতে হবে। আজ বা আগের তারিখ নেওয়া হবে না।')
+      return
+    }
+    if (filing && next <= filing) {
+      setError('পরবর্তী শুনানির তারিখ দাখিলের তারিখের পরের হতে হবে।')
       return
     }
     const nextDay = new Date(`${next}T00:00:00`)
@@ -511,13 +517,20 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           <h2 className="sm:col-span-2 font-display text-lg font-semibold text-ink">পক্ষ, তারিখ ও নোট</h2>
 
         <Input
-          label="দাখিলের তারিখ"
+          label="দাখিলের তারিখ (ঐচ্ছিক)"
           type="date"
-          required
           max={todayKey}
           value={form.filingDate}
-          onChange={(e) => set('filingDate', e.target.value)}
-          hint="আজ বা আজকের আগের তারিখ"
+          onChange={(e) => {
+            if (filingLocked) return
+            set('filingDate', e.target.value)
+          }}
+          disabled={filingLocked}
+          hint={
+            filingLocked
+              ? 'দাখিলের তারিখ একবার এন্ট্রি হলে আর পরিবর্তন করা যায় না'
+              : 'না দিলেও মামলা হবে — পরে পুরাতন তারিখ থেকেও দাখিল সেট করা যাবে'
+          }
         />
 
         {user?.role === 'LAWYER' ? (
@@ -527,8 +540,10 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
                 <p className="text-sm font-bold text-ink">পুরাতন শুনানির তারিখ</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
                   {mode === 'edit' && id
-                    ? 'দাখিল ও পরবর্তী তারিখের মাঝের পুরোনো শুনানি এখানে যোগ করুন (শুধু উকিল)।'
-                    : 'মামলা সেভ করার পর এখানে বা মামলার বিস্তারিত পেজে পুরাতন তারিখ যোগ করতে পারবেন।'}
+                    ? form.filingDate
+                      ? 'দাখিলের পরের পুরোনো শুনানি এখানে যোগ করুন (শুধু উকিল)।'
+                      : 'দাখিল না থাকলে বিবরণে «দাখিল তারিখ» বেছে একবার সেট করুন। দাখিল ছাড়াও পুরাতন তারিখ এন্ট্রি করা যাবে।'
+                    : 'মামলা সেভের পর পুরাতন তারিখ যোগ করতে পারবেন। দাখিল ঐচ্ছিক।'}
                 </p>
               </div>
               {mode === 'edit' && id ? (
@@ -566,7 +581,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
                   label="সেদিন কী হয়েছিল"
                   value={pastPurpose}
                   placeholder="রায়, আদেশ…"
-                  options={HEARING_PURPOSE_OPTIONS}
+                  options={pastHearingPurposeOptions(Boolean(form.filingDate))}
                   onChange={(e) => {
                     setPastPurpose(e.target.value)
                     if (e.target.value !== 'অন্যান্য') setPastCustomPurpose('')
@@ -600,7 +615,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
                         return
                       }
                       const filing = String(form.filingDate || '').slice(0, 10)
-                      if (filing && day <= filing) {
+                      if (purposeValue !== 'দাখিল তারিখ' && filing && day <= filing) {
                         setPastMsg(
                           day === filing
                             ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
@@ -611,20 +626,30 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
                       setSavingPast(true)
                       setPastMsg('')
                       try {
-                        const res = await api<{ data: Hearing }>(`/cases/${id}/past-hearings`, {
-                          method: 'POST',
-                          body: {
-                            hearingDate: day,
-                            hearingType: purposeValue,
-                            notes: pastNotes.trim() || undefined,
+                        const res = await api<{ data: Hearing; case?: Case; mode?: string }>(
+                          `/cases/${id}/past-hearings`,
+                          {
+                            method: 'POST',
+                            body: {
+                              hearingDate: day,
+                              hearingType: purposeValue,
+                              notes: pastNotes.trim() || undefined,
+                            },
                           },
-                        })
-                        setPastList((prev) => [...prev.filter((h) => h.id !== res.data.id), res.data])
+                        )
+                        if (res.mode === 'filing' || res.case?.filingDate) {
+                          const lockedFiling = res.case?.filingDate || day
+                          set('filingDate', lockedFiling)
+                          setFilingLocked(true)
+                          setPastMsg('দাখিলের তারিখ সংরক্ষণ হয়েছে।')
+                        } else {
+                          setPastList((prev) => [...prev.filter((h) => h.id !== res.data.id), res.data])
+                          setPastMsg('পুরাতন তারিখ এন্ট্রি হয়েছে।')
+                        }
                         setPastDate('')
                         setPastPurpose('')
                         setPastCustomPurpose('')
                         setPastNotes('')
-                        setPastMsg('পুরাতন তারিখ এন্ট্রি হয়েছে।')
                       } catch (err) {
                         setPastMsg(err instanceof ApiError ? err.message : 'সংরক্ষণ হয়নি।')
                       } finally {

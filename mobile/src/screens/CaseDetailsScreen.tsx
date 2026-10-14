@@ -14,7 +14,7 @@ import { api, ApiError } from '../api/client'
 import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
-import { HEARING_PURPOSE_OPTIONS } from '../utils/courtCalendar'
+import { HEARING_PURPOSE_OPTIONS, pastHearingPurposeOptions } from '../utils/courtCalendar'
 import type { RootStackParamList } from '../navigation/types'
 
 type CaseData = {
@@ -179,26 +179,29 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
       return
     }
     const filing = String(item.filingDate || '').slice(0, 10)
-    if (filing && day <= filing) {
+    if (purposeValue !== 'দাখিল তারিখ' && filing && day <= filing) {
       Alert.alert(
         t('error'),
         day === filing
           ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
-          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না। দাখিলের পরের তারিখ দিন।',
       )
       return
     }
     if (savingPast) return
     setSavingPast(true)
     try {
-      const res = await api<{ data: unknown; case: CaseData }>(`/cases/${item.id}/past-hearings`, {
-        method: 'POST',
-        body: {
-          hearingDate: day,
-          hearingType: purposeValue,
-          notes: pastNotes.trim() || undefined,
+      const res = await api<{ data: unknown; case: CaseData; mode?: string }>(
+        `/cases/${item.id}/past-hearings`,
+        {
+          method: 'POST',
+          body: {
+            hearingDate: day,
+            hearingType: purposeValue,
+            notes: pastNotes.trim() || undefined,
+          },
         },
-      })
+      )
       if (res.case) {
         setItem((prev) => ({ ...prev, ...res.case }))
       }
@@ -207,7 +210,7 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
       setPastCustomPurpose('')
       setPastNotes('')
       setShowPastForm(false)
-      setToastMessage(t('pastHearingSaved'))
+      setToastMessage(res.mode === 'filing' ? 'দাখিলের তারিখ সংরক্ষণ হয়েছে।' : t('pastHearingSaved'))
       setToast('success')
     } catch (e) {
       if (e instanceof ApiError && e.code === 'HEARING_ALREADY_ENTERED') {
@@ -289,7 +292,11 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
       {isLawyer ? (
         <AppCard style={{ gap: 10, marginTop: 14 }}>
           <Text style={{ color: c.text, fontWeight: '800', fontSize: 15 }}>{t('pastHearingDate')}</Text>
-          <Text style={{ color: c.textMuted, fontSize: 12, lineHeight: 18 }}>{t('addPastHearingHint')}</Text>
+          <Text style={{ color: c.textMuted, fontSize: 12, lineHeight: 18 }}>
+            {item.filingDate
+              ? t('addPastHearingHint')
+              : 'দাখিল না থাকলে বিবরণে «দাখিল তারিখ» বেছে একবার সেট করুন। দাখিল ছাড়াও পুরাতন তারিখ এন্ট্রি করা যাবে।'}
+          </Text>
           <AppButton
             title={showPastForm ? t('close') : t('addPastHearing')}
             variant="outline"
@@ -302,14 +309,14 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
                 label={t('pastHearingDate')}
                 value={pastDate}
                 onChange={setPastDate}
-                skipHolidays
+                skipHolidays={pastPurpose !== 'দাখিল তারিখ'}
                 placeholder="YYYY-MM-DD"
               />
               <SelectField
                 label={t('description')}
                 value={pastPurpose}
                 placeholder="সেদিন কী হয়েছিল"
-                options={HEARING_PURPOSE_OPTIONS}
+                options={pastHearingPurposeOptions(Boolean(item.filingDate))}
                 onChange={(v) => {
                   setPastPurpose(v)
                   if (v !== 'অন্যান্য') setPastCustomPurpose('')

@@ -1366,7 +1366,9 @@ function hearingDayKey(value) {
   return toDateKey(parsed)
 }
 
-/** Filing ≤ today; next hearing > today (and not Fri/Sat). */
+const FILING_PURPOSE = 'দাখিল তারিখ'
+
+/** Filing optional but if set ≤ today; next hearing > today (and not Fri/Sat). */
 function validateCaseEntryDates(body) {
   const today = toDateKey(new Date())
   if (body.filingDate) {
@@ -1385,6 +1387,10 @@ function validateCaseEntryDates(body) {
     const day = new Date(n + 'T00:00:00')
     if (day.getDay() === 5 || day.getDay() === 6) {
       return 'শুক্রবার/শনিবার আদালত বন্ধ। অন্য তারিখ দিন।'
+    }
+    const f = body.filingDate ? hearingDayKey(body.filingDate) : ''
+    if (f && n <= f) {
+      return 'পরবর্তী শুনানির তারিখ দাখিলের তারিখের পরের হতে হবে।'
     }
   }
   return null
@@ -2175,8 +2181,8 @@ async function handler(req, res) {
       if (!body.caseNumber || !body.caseTitle || !body.courtName) {
         return json(res, 400, { error: 'মামলা নম্বর, শিরোনাম ও আদালত আবশ্যক।' }, req)
       }
-      if (!body.filingDate || !body.nextHearingDate) {
-        return json(res, 400, { error: 'দাখিলের তারিখ ও পরবর্তী শুনানির তারিখ আবশ্যক।' }, req)
+      if (!body.nextHearingDate) {
+        return json(res, 400, { error: 'পরবর্তী শুনানির তারিখ আবশ্যক। দাখিলের তারিখ ঐচ্ছিক।' }, req)
       }
       const dateErr = validateCaseEntryDates(body)
       if (dateErr) return json(res, 400, { error: dateErr }, req)
@@ -2229,7 +2235,7 @@ async function handler(req, res) {
         division,
         district,
         courtType: body.courtType || '',
-        filingDate: body.filingDate || new Date().toISOString().slice(0, 10),
+        filingDate: body.filingDate ? hearingDayKey(body.filingDate) : '',
         status: body.status || (body.nextHearingDate ? 'Hearing Scheduled' : 'Active'),
         plaintiff: String(body.plaintiff || '').trim(),
         defendant: String(body.defendant || '').trim(),
@@ -2329,6 +2335,16 @@ async function handler(req, res) {
         const num = normalizeCaseNumber(body.caseNumber)
         if (!num.ok) return json(res, 400, { error: num.error }, req)
         body.caseNumber = num.value
+      }
+      const existingFiling = hearingDayKey(existing.filingDate)
+      if (body.filingDate !== undefined) {
+        const nextFiling = hearingDayKey(body.filingDate)
+        if (existingFiling && nextFiling && nextFiling !== existingFiling) {
+          return json(res, 400, { error: 'দাখিলের তারিখ একবার এন্ট্রি হলে আর পরিবর্তন করা যায় না।' }, req)
+        }
+        if (existingFiling && !nextFiling) {
+          return json(res, 400, { error: 'দাখিলের তারিখ মুছে ফেলা যায় না।' }, req)
+        }
       }
       if (body.filingDate !== undefined || body.nextHearingDate !== undefined) {
         const dateErr = validateCaseEntryDates({
@@ -2534,7 +2550,7 @@ async function handler(req, res) {
       return json(res, 200, { data: db.cases[idx], mode: 'created' }, req)
     }
 
-    // Lawyer-only: backfill past hearing dates between filing and next (ongoing old cases)
+    // Lawyer-only: backfill past hearing dates / set filing date once when missing
     const pastHearingMatch = path.match(/^\/api\/cases\/([^/]+)\/past-hearings$/)
     if (method === 'POST' && pastHearingMatch) {
       if (!auth) return json(res, 401, { error: 'Unauthorized' }, req)
@@ -2560,6 +2576,57 @@ async function handler(req, res) {
       const today = toDateKey(new Date())
       const filing = hearingDayKey(existing.filingDate)
       const currentNext = hearingDayKey(existing.nextHearingDate)
+      const isFilingEntry = purpose === FILING_PURPOSE || body.asFilingDate === true
+
+      if (pastDate > today) {
+        return json(res, 400, { error: 'পুরাতন এন্ট্রিতে ভবিষ্যতের তারিখ দেওয়া যায় না।' }, req)
+      }
+      if (currentNext && pastDate >= currentNext) {
+        return json(
+          res,
+          400,
+          { error: 'তারিখ পরবর্তী শুনানির আগের হতে হবে। পরবর্তী তারিখ আলাদাভাবে এন্ট্রি/এডিট করুন।' },
+          req,
+        )
+      }
+
+      // First-time filing date via past-entry form (no hearing row — shown as দাখিল on timeline)
+      if (isFilingEntry) {
+        if (filing) {
+          return json(res, 400, { error: 'দাখিলের তারিখ ইতিমধ্যে এন্ট্রি হয়েছে — আর পরিবর্তন করা যায় না।' }, req)
+        }
+        const earlierHearing = (db.hearings || []).some((h) => {
+          const d = hearingDayKey(h.hearingDate)
+          return h.caseId === existing.id && d && d < pastDate
+        })
+        if (earlierHearing) {
+          return json(
+            res,
+            400,
+            { error: 'দাখিলের তারিখ সব পুরাতন শুনানির আগে বা সমান হতে হবে। আগে যে তারিখগুলো আছে সেগুলোর আগে দাখিল দিন।' },
+            req,
+          )
+        }
+        db.cases[idx] = { ...existing, filingDate: pastDate }
+        saveDb(db)
+        return json(
+          res,
+          201,
+          {
+            data: {
+              id: `filing-${pastDate}`,
+              caseId: existing.id,
+              hearingDate: pastDate,
+              hearingType: FILING_PURPOSE,
+              isFilingDate: true,
+            },
+            case: db.cases[idx],
+            mode: 'filing',
+          },
+          req,
+        )
+      }
+
       if (filing && pastDate <= filing) {
         return json(
           res,
@@ -2568,24 +2635,13 @@ async function handler(req, res) {
             error:
               pastDate === filing
                 ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
-                : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+                : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না। দাখিলের পরের তারিখ দিন।',
           },
           req,
         )
       }
       if (day.getDay() === 5 || day.getDay() === 6) {
         return json(res, 400, { error: 'শুক্রবার/শনিবার আদালত বন্ধ।' }, req)
-      }
-      if (pastDate > today) {
-        return json(res, 400, { error: 'পুরাতন এন্ট্রিতে ভবিষ্যতের তারিখ দেওয়া যায় না। পরবর্তী তারিখ আলাদা ফিল্ডে দিন।' }, req)
-      }
-      if (currentNext && pastDate >= currentNext) {
-        return json(
-          res,
-          400,
-          { error: 'পুরাতন তারিখ পরবর্তী শুনানির আগের হতে হবে। পরবর্তী তারিখ আলাদাভাবে এন্ট্রি/এডিট করুন।' },
-          req,
-        )
       }
       const already = (db.hearings || []).some(
         (h) => h.caseId === existing.id && hearingDayKey(h.hearingDate) === pastDate,

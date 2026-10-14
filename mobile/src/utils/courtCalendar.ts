@@ -153,6 +153,8 @@ export function needsNextHearingUpdate(
   return isPastDate(nextHearingDate, relativeTo)
 }
 
+export const FILING_PURPOSE_VALUE = 'দাখিল তারিখ'
+
 export const HEARING_PURPOSE_OPTIONS = [
   { value: 'জবাবদাখি', label: 'জবাবদাখি' },
   { value: 'সাক্ষ্য গ্রহণ', label: 'সাক্ষ্য গ্রহণ' },
@@ -164,6 +166,12 @@ export const HEARING_PURPOSE_OPTIONS = [
   { value: 'রায় ঘোষণা', label: 'রায় ঘোষণা' },
   { value: 'অন্যান্য', label: 'অন্যান্য' },
 ]
+
+/** Past-hearing purpose list — includes দাখিল তারিখ only when filing date is still empty. */
+export function pastHearingPurposeOptions(hasFilingDate: boolean) {
+  if (hasFilingDate) return HEARING_PURPOSE_OPTIONS
+  return [{ value: FILING_PURPOSE_VALUE, label: 'দাখিল তারিখ' }, ...HEARING_PURPOSE_OPTIONS]
+}
 
 export type DayCaseFilter = 'today' | 'next' | 'pending'
 
