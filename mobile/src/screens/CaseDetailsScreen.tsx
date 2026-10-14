@@ -178,6 +178,16 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
       Alert.alert(t('error'), 'পুরাতন তারিখ এবং সেদিন কী হয়েছিল — দুটোই দিন')
       return
     }
+    const filing = String(item.filingDate || '').slice(0, 10)
+    if (filing && day <= filing) {
+      Alert.alert(
+        t('error'),
+        day === filing
+          ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
+          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+      )
+      return
+    }
     if (savingPast) return
     setSavingPast(true)
     try {

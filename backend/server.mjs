@@ -1965,12 +1965,22 @@ async function handler(req, res) {
       return json(res, 200, { data: results }, req)
     }
 
-    // Public case detail (no private fields)
+    // Public case detail (no private fields) — includes hearing date list for citizens
     const publicCaseDetail = path.match(/^\/api\/cases\/search\/detail\/([^/]+)$/)
     if (method === 'GET' && publicCaseDetail) {
       ensureCaseLocations(db)
       const c = db.cases.find((x) => x.id === publicCaseDetail[1])
       if (!c) return json(res, 404, { error: 'মামলা পাওয়া যায়নি।' }, req)
+      const hearings = (db.hearings || [])
+        .filter((h) => h.caseId === c.id)
+        .map((h) => ({
+          id: h.id,
+          hearingDate: hearingDayKey(h.hearingDate) || String(h.hearingDate || '').slice(0, 10),
+          hearingTime: h.hearingTime || '',
+          hearingType: h.hearingType || '',
+          court: h.court || c.courtName || '',
+        }))
+        .sort((a, b) => String(a.hearingDate).localeCompare(String(b.hearingDate)))
       return json(
         res,
         200,
@@ -1980,6 +1990,7 @@ async function handler(req, res) {
             privateNotes: undefined,
             importantNotes: undefined,
             assignedStaffIds: [],
+            hearings,
           },
         },
         req,
@@ -2506,14 +2517,24 @@ async function handler(req, res) {
       if (Number.isNaN(day.getTime())) {
         return json(res, 400, { error: 'তারিখ সঠিক নয়।' }, req)
       }
-      if (day.getDay() === 5 || day.getDay() === 6) {
-        return json(res, 400, { error: 'শুক্রবার/শনিবার আদালত বন্ধ।' }, req)
-      }
       const today = toDateKey(new Date())
       const filing = hearingDayKey(existing.filingDate)
       const currentNext = hearingDayKey(existing.nextHearingDate)
-      if (filing && pastDate < filing) {
-        return json(res, 400, { error: 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।' }, req)
+      if (filing && pastDate <= filing) {
+        return json(
+          res,
+          400,
+          {
+            error:
+              pastDate === filing
+                ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
+                : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+          },
+          req,
+        )
+      }
+      if (day.getDay() === 5 || day.getDay() === 6) {
+        return json(res, 400, { error: 'শুক্রবার/শনিবার আদালত বন্ধ।' }, req)
       }
       if (pastDate > today) {
         return json(res, 400, { error: 'পুরাতন এন্ট্রিতে ভবিষ্যতের তারিখ দেওয়া যায় না। পরবর্তী তারিখ আলাদা ফিল্ডে দিন।' }, req)

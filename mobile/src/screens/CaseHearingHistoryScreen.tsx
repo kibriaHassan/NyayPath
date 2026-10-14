@@ -36,26 +36,64 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
   const { caseId, caseNumber, filingDate, nextHearingDate, nextHearingPurpose, courtName } =
     route.params
   const [hearings, setHearings] = useState<HearingRow[]>([])
+  const [filing, setFiling] = useState(filingDate || '')
+  const [nextDate, setNextDate] = useState(nextHearingDate || '')
+  const [nextPurpose, setNextPurpose] = useState(nextHearingPurpose || '')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api<{ data: HearingRow[] }>('/hearings')
-      .then((res) => setHearings((res.data || []).filter((h) => h.caseId === caseId)))
-      .catch(() => setHearings([]))
-      .finally(() => setLoading(false))
-  }, [caseId])
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      try {
+        const publicRes = await api<{
+          data: {
+            filingDate?: string
+            nextHearingDate?: string
+            nextHearingPurpose?: string
+            hearings?: HearingRow[]
+          }
+        }>(`/cases/search/detail/${caseId}`, { auth: false })
+        if (cancelled) return
+        setFiling(publicRes.data.filingDate || filingDate || '')
+        setNextDate(publicRes.data.nextHearingDate || nextHearingDate || '')
+        setNextPurpose(publicRes.data.nextHearingPurpose || nextHearingPurpose || '')
+        const list = (publicRes.data.hearings || []).map((h, i) => ({
+          ...h,
+          id: h.id || `ph-${i}`,
+        }))
+        setHearings(list)
+      } catch {
+        try {
+          const res = await api<{ data: HearingRow[] }>('/hearings')
+          if (cancelled) return
+          setHearings((res.data || []).filter((h) => h.caseId === caseId))
+        } catch {
+          if (!cancelled) setHearings([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [caseId, filingDate, nextHearingDate, nextHearingPurpose])
 
   const timeline = useMemo(() => {
     const rows: TimelineItem[] = []
-    const filing = dateKeyFromValue(filingDate)
-    if (filing) {
+    const filingKey = dateKeyFromValue(filing)
+    const seen = new Set<string>()
+    if (filingKey) {
       rows.push({
-        key: `filing-${filing}`,
-        date: filing,
+        key: `filing-${filingKey}`,
+        date: filingKey,
         title: t('filingDate'),
         detail: t('caseFiled'),
         tone: 'start',
       })
+      seen.add(filingKey)
     }
 
     const sorted = [...hearings].sort((a, b) =>
@@ -63,7 +101,8 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
     )
     for (const h of sorted) {
       const day = dateKeyFromValue(h.hearingDate)
-      if (!day) continue
+      if (!day || seen.has(day)) continue
+      seen.add(day)
       rows.push({
         key: h.id,
         date: day,
@@ -73,19 +112,19 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
       })
     }
 
-    const next = dateKeyFromValue(nextHearingDate)
-    if (next && !rows.some((r) => r.date === next && r.tone !== 'start')) {
+    const next = dateKeyFromValue(nextDate)
+    if (next && !seen.has(next)) {
       rows.push({
         key: `next-${next}`,
         date: next,
-        title: nextHearingPurpose || t('nextHearing'),
+        title: nextPurpose || t('nextHearing'),
         detail: t('upcomingDate'),
         tone: 'next',
       })
     }
 
     return rows.sort((a, b) => a.date.localeCompare(b.date))
-  }, [hearings, filingDate, nextHearingDate, nextHearingPurpose, courtName, t])
+  }, [hearings, filing, nextDate, nextPurpose, courtName, t])
 
   return (
     <Screen>
@@ -96,6 +135,9 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
       />
       <AppCard style={{ marginBottom: 12, backgroundColor: c.primarySoft, borderColor: c.primary }}>
         <Text style={{ color: c.primary, fontWeight: '800' }}>{t('hearingHistoryHint')}</Text>
+        <Text style={{ color: c.textMuted, marginTop: 6, fontSize: 12 }}>
+          পুরোনো তারিখ উপরে · নতুন তারিখ নিচে
+        </Text>
       </AppCard>
 
       {loading ? <Text style={{ color: c.textMuted }}>{t('loading')}</Text> : null}

@@ -453,6 +453,15 @@ export function CaseFormScreen({ navigation, route }: Props) {
                               setPastMsg('তারিখ ও বিবরণ দুটোই দিন।')
                               return
                             }
+                            const filing = filingDate.trim().slice(0, 10)
+                            if (filing && day <= filing) {
+                              setPastMsg(
+                                day === filing
+                                  ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
+                                  : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+                              )
+                              return
+                            }
                             setSavingPast(true)
                             setPastMsg('')
                             try {

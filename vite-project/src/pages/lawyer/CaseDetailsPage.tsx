@@ -145,6 +145,15 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
       setActionMsg('পুরাতন তারিখ এবং সেদিন কী হয়েছিল — দুটোই দিন।')
       return
     }
+    const filing = String(caseItem.filingDate || '').slice(0, 10)
+    if (filing && day <= filing) {
+      setActionMsg(
+        day === filing
+          ? 'দাখিলের তারিখ আলাদাভাবে আছে — পুরাতন শুনানি হিসেবে আবার এন্ট্রি করা যাবে না।'
+          : 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।',
+      )
+      return
+    }
     const d = new Date(`${day}T00:00:00`)
     if (d.getDay() === 5 || d.getDay() === 6) {
       setActionMsg('শুক্রবার/শনিবার আদালত বন্ধ।')
@@ -269,7 +278,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
     (caseItem.defendantLawyerId ? getLawyerById(caseItem.defendantLawyerId)?.fullName : '') ||
     '— (এখনো নেই)'
   const sortedHearings = [...caseHearings].sort((a, b) =>
-    String(b.hearingDate).localeCompare(String(a.hearingDate)),
+    String(a.hearingDate).localeCompare(String(b.hearingDate)),
   )
 
   return (
@@ -411,7 +420,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                   <div>
                     <p className="text-sm font-bold text-ink">পুরাতন শুনানির তারিখ</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted">
-                      দাখিল ও পরবর্তী তারিখের মাঝের পুরোনো শুনানি এখানে যোগ করুন। পরবর্তী তারিখ আলাদা থাকবে — শুধু
+                      দাখিলের পরের দিন থেকে পরবর্তী তারিখের আগ পর্যন্ত পুরোনো শুনানি যোগ করুন (দাখিলের দিন নয়)। শুধু
                       উকিল।
                     </p>
                   </div>
@@ -431,7 +440,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
                       type="date"
                       value={pastDate}
                       onChange={(e) => setPastDate(e.target.value)}
-                      hint="আজকের আগে · দাখিলের পর · পরবর্তী তারিখের আগে"
+                      hint="দাখিলের পরের দিন থেকে · আজকের আগে · পরবর্তী তারিখের আগে (দাখিলের দিন নয়)"
                     />
                     <Select
                       label="সেদিন কী হয়েছিল"
@@ -555,6 +564,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
         {/* Sidebar */}
         <div className="space-y-5">
           <SectionCard icon={CalendarDays} title="শুনানির ইতিহাস" compact>
+            <p className="mb-2 text-[11px] text-muted">পুরোনো তারিখ উপরে · নতুন তারিখ নিচে</p>
             {sortedHearings.length === 0 && !caseItem.nextHearingDate ? (
               <EmptyHint text="কোনো শুনানি নেই।" />
             ) : null}
