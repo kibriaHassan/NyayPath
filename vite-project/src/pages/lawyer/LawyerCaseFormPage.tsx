@@ -97,6 +97,16 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
   const [savingPast, setSavingPast] = useState(false)
   const [pastMsg, setPastMsg] = useState('')
 
+  const todayKey = (() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })()
+  const tomorrowKey = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })()
+
   useEffect(() => {
     api<{ data: Staff[] }>('/staff')
       .then((res) => setMyStaff((res.data || []).filter((s) => s.active)))
@@ -287,11 +297,26 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
       return
     }
     if (!form.filingDate || !form.nextHearingDate) {
-      setError('ফাইলিং তারিখ ও পরবর্তী শুনানির তারিখ আবশ্যক।')
+      setError('দাখিলের তারিখ ও পরবর্তী শুনানির তারিখ আবশ্যক।')
       return
     }
-    if (!form.plaintiff.trim() || !form.defendant.trim()) {
-      setError('বাদী ও বিবাদীর নাম আবশ্যক।')
+    const filing = form.filingDate.slice(0, 10)
+    const next = form.nextHearingDate.slice(0, 10)
+    if (filing > todayKey) {
+      setError('দাখিলের তারিখ আজ বা আজকের আগের হতে হবে। ভবিষ্যতের তারিখ দেওয়া যাবে না।')
+      return
+    }
+    if (next <= todayKey) {
+      setError('পরবর্তী শুনানির তারিখ আজকের পরের দিন হতে হবে। আজ বা আগের তারিখ নেওয়া হবে না।')
+      return
+    }
+    const nextDay = new Date(`${next}T00:00:00`)
+    if (nextDay.getDay() === 5 || nextDay.getDay() === 6) {
+      setError('শুক্রবার/শনিবার আদালত বন্ধ। অন্য তারিখ দিন।')
+      return
+    }
+    if (!form.plaintiff.trim()) {
+      setError('বাদীর নাম আবশ্যক। বিবাদীর নাম ঐচ্ছিক।')
       return
     }
     if (mode !== 'edit' && match) {
@@ -486,11 +511,13 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           <h2 className="sm:col-span-2 font-display text-lg font-semibold text-ink">পক্ষ, তারিখ ও নোট</h2>
 
         <Input
-          label="Filing Date"
+          label="দাখিলের তারিখ"
           type="date"
           required
+          max={todayKey}
           value={form.filingDate}
           onChange={(e) => set('filingDate', e.target.value)}
+          hint="আজ বা আজকের আগের তারিখ"
         />
 
         {user?.role === 'LAWYER' ? (
@@ -518,7 +545,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
             {mode === 'edit' && id && pastList.length > 0 ? (
               <ul className="mt-3 space-y-1.5">
                 {[...pastList]
-                  .sort((a, b) => String(a.hearingDate).localeCompare(String(b.hearingDate)))
+                  .sort((a, b) => String(b.hearingDate).localeCompare(String(a.hearingDate)))
                   .map((h) => (
                     <li key={h.id} className="text-xs text-muted">
                       <span className="font-semibold text-ink">{h.hearingDate}</span>
@@ -614,11 +641,13 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
         ) : null}
 
         <Input
-          label="Next Hearing Date"
+          label="পরবর্তী শুনানির তারিখ"
           type="date"
           required
+          min={tomorrowKey}
           value={form.nextHearingDate}
           onChange={(e) => set('nextHearingDate', e.target.value)}
+          hint="আজকের পরের তারিখ (আজ বা আগে নেওয়া যাবে না)"
         />
 
         <Input
@@ -628,10 +657,10 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           onChange={(e) => set('plaintiff', e.target.value)}
         />
         <Input
-          label="বিবাদী"
-          required
+          label="বিবাদী (ঐচ্ছিক)"
           value={form.defendant}
           onChange={(e) => set('defendant', e.target.value)}
+          hint="নাম না দিলেও মামলা এন্ট্রি হবে"
         />
 
         <div className="sm:col-span-2">

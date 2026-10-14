@@ -113,7 +113,7 @@ export default function PublicCaseDetailsPage() {
     }
     const seen = new Set(filing ? [filing] : [])
     for (const h of [...(item.hearings || [])].sort((a, b) =>
-      String(a.hearingDate || '').localeCompare(String(b.hearingDate || '')),
+      String(b.hearingDate || '').localeCompare(String(a.hearingDate || '')),
     )) {
       const day = dateKeyFromValue(h.hearingDate)
       if (!day || seen.has(day)) continue
@@ -136,7 +136,8 @@ export default function PublicCaseDetailsPage() {
         tone: 'next',
       })
     }
-    return rows.sort((a, b) => a.date.localeCompare(b.date))
+    // Newest first (top), oldest last (bottom)
+    return rows.sort((a, b) => b.date.localeCompare(a.date))
   }, [item])
 
   if (loading) return <p className="container-page py-10 text-muted">লোড হচ্ছে…</p>
@@ -229,7 +230,7 @@ export default function PublicCaseDetailsPage() {
       <Card className="mt-6">
         <CardHeader>
           <h2 className="font-semibold">সব শুনানির তারিখ</h2>
-          <p className="mt-1 text-xs text-muted">পুরোনো তারিখ উপরে · নতুন তারিখ নিচে</p>
+          <p className="mt-1 text-xs text-muted">নতুন তারিখ উপরে · পুরোনো তারিখ নিচে</p>
         </CardHeader>
         <CardContent>
           {dateTimeline.length === 0 ? (

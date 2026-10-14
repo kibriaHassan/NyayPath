@@ -97,7 +97,7 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
     }
 
     const sorted = [...hearings].sort((a, b) =>
-      dateKeyFromValue(a.hearingDate).localeCompare(dateKeyFromValue(b.hearingDate)),
+      dateKeyFromValue(b.hearingDate).localeCompare(dateKeyFromValue(a.hearingDate)),
     )
     for (const h of sorted) {
       const day = dateKeyFromValue(h.hearingDate)
@@ -123,7 +123,8 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
       })
     }
 
-    return rows.sort((a, b) => a.date.localeCompare(b.date))
+    // Newest first (top), oldest last (bottom)
+    return rows.sort((a, b) => b.date.localeCompare(a.date))
   }, [hearings, filing, nextDate, nextPurpose, courtName, t])
 
   return (
@@ -136,7 +137,7 @@ export function CaseHearingHistoryScreen({ navigation, route }: Props) {
       <AppCard style={{ marginBottom: 12, backgroundColor: c.primarySoft, borderColor: c.primary }}>
         <Text style={{ color: c.primary, fontWeight: '800' }}>{t('hearingHistoryHint')}</Text>
         <Text style={{ color: c.textMuted, marginTop: 6, fontSize: 12 }}>
-          পুরোনো তারিখ উপরে · নতুন তারিখ নিচে
+          নতুন তারিখ উপরে · পুরোনো তারিখ নিচে
         </Text>
       </AppCard>
 

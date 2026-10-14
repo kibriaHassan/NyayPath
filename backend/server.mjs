@@ -1366,6 +1366,30 @@ function hearingDayKey(value) {
   return toDateKey(parsed)
 }
 
+/** Filing ≤ today; next hearing > today (and not Fri/Sat). */
+function validateCaseEntryDates(body) {
+  const today = toDateKey(new Date())
+  if (body.filingDate) {
+    const f = hearingDayKey(body.filingDate)
+    if (!f) return 'দাখিলের তারিখ সঠিক নয়।'
+    if (f > today) {
+      return 'দাখিলের তারিখ আজ বা আজকের আগের হতে হবে। ভবিষ্যতের তারিখ দেওয়া যাবে না।'
+    }
+  }
+  if (body.nextHearingDate) {
+    const n = hearingDayKey(body.nextHearingDate)
+    if (!n) return 'পরবর্তী শুনানির তারিখ সঠিক নয়।'
+    if (n <= today) {
+      return 'পরবর্তী শুনানির তারিখ আজকের পরের দিন হতে হবে। আজ বা আগের তারিখ নেওয়া হবে না।'
+    }
+    const day = new Date(n + 'T00:00:00')
+    if (day.getDay() === 5 || day.getDay() === 6) {
+      return 'শুক্রবার/শনিবার আদালত বন্ধ। অন্য তারিখ দিন।'
+    }
+  }
+  return null
+}
+
 function addDays(date, days) {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   d.setDate(d.getDate() + days)
@@ -1980,7 +2004,7 @@ async function handler(req, res) {
           hearingType: h.hearingType || '',
           court: h.court || c.courtName || '',
         }))
-        .sort((a, b) => String(a.hearingDate).localeCompare(String(b.hearingDate)))
+        .sort((a, b) => String(b.hearingDate).localeCompare(String(a.hearingDate)))
       return json(
         res,
         200,
@@ -2151,6 +2175,14 @@ async function handler(req, res) {
       if (!body.caseNumber || !body.caseTitle || !body.courtName) {
         return json(res, 400, { error: 'মামলা নম্বর, শিরোনাম ও আদালত আবশ্যক।' }, req)
       }
+      if (!body.filingDate || !body.nextHearingDate) {
+        return json(res, 400, { error: 'দাখিলের তারিখ ও পরবর্তী শুনানির তারিখ আবশ্যক।' }, req)
+      }
+      const dateErr = validateCaseEntryDates(body)
+      if (dateErr) return json(res, 400, { error: dateErr }, req)
+      if (!String(body.plaintiff || '').trim()) {
+        return json(res, 400, { error: 'বাদীর নাম আবশ্যক। বিবাদীর নাম ঐচ্ছিক।' }, req)
+      }
       const num = normalizeCaseNumber(body.caseNumber)
       if (!num.ok) return json(res, 400, { error: num.error }, req)
 
@@ -2297,6 +2329,14 @@ async function handler(req, res) {
         const num = normalizeCaseNumber(body.caseNumber)
         if (!num.ok) return json(res, 400, { error: num.error }, req)
         body.caseNumber = num.value
+      }
+      if (body.filingDate !== undefined || body.nextHearingDate !== undefined) {
+        const dateErr = validateCaseEntryDates({
+          filingDate: body.filingDate !== undefined ? body.filingDate : existing.filingDate,
+          nextHearingDate:
+            body.nextHearingDate !== undefined ? body.nextHearingDate : existing.nextHearingDate,
+        })
+        if (dateErr) return json(res, 400, { error: dateErr }, req)
       }
       // Closed by this lawyer = withdraw their side, don't wipe opposite
       if (body.status === 'Closed' && auth.role === 'LAWYER') {

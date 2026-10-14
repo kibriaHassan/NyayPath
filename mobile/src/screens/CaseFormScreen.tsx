@@ -199,7 +199,19 @@ export function CaseFormScreen({ navigation, route }: Props) {
       return t('needLocationAll')
     }
     if (!filingDate.trim() || !nextHearingDate.trim()) return t('needDates')
-    if (!plaintiff.trim() || !defendant.trim()) return t('needParties')
+    const today = new Date()
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const filing = filingDate.trim().slice(0, 10)
+    const next = nextHearingDate.trim().slice(0, 10)
+    if (filing > todayKey) return t('filingDateFutureError')
+    if (next <= todayKey) return t('nextHearingPastError')
+    try {
+      const nextDay = new Date(`${next}T00:00:00`)
+      if (nextDay.getDay() === 5 || nextDay.getDay() === 6) return t('courtHolidayError')
+    } catch {
+      return t('needDates')
+    }
+    if (!plaintiff.trim()) return t('needParties')
     if (!side) return t('needSide')
     if (mode !== 'edit' && match) return t('caseAlreadyExists')
     return null
@@ -211,7 +223,6 @@ export function CaseFormScreen({ navigation, route }: Props) {
     filingDate,
     nextHearingDate,
     plaintiff,
-    defendant,
     side,
     mode,
     match,
@@ -377,6 +388,10 @@ export function CaseFormScreen({ navigation, route }: Props) {
             value={filingDate}
             onChange={setFilingDate}
             placeholder="2025-11-12"
+            maxDate={(() => {
+              const d = new Date()
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            })()}
           />
 
           {isLawyer ? (
@@ -501,10 +516,20 @@ export function CaseFormScreen({ navigation, route }: Props) {
             placeholder="2026-10-15"
             clearOnFocus={mode === 'edit'}
             skipHolidays
+            minDate={(() => {
+              const d = new Date()
+              d.setDate(d.getDate() + 1)
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            })()}
           />
 
           <AppInput label={t('plaintiff')} required value={plaintiff} onChangeText={setPlaintiff} />
-          <AppInput label={t('defendant')} required value={defendant} onChangeText={setDefendant} />
+          <AppInput
+            label={t('defendantOptional')}
+            value={defendant}
+            onChangeText={setDefendant}
+            placeholder={t('defendant')}
+          />
 
           <Text style={{ color: c.text, fontWeight: '700' }}>
             {t('representingSide')}

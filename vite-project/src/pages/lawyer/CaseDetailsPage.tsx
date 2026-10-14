@@ -278,7 +278,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
     (caseItem.defendantLawyerId ? getLawyerById(caseItem.defendantLawyerId)?.fullName : '') ||
     '— (এখনো নেই)'
   const sortedHearings = [...caseHearings].sort((a, b) =>
-    String(a.hearingDate).localeCompare(String(b.hearingDate)),
+    String(b.hearingDate).localeCompare(String(a.hearingDate)),
   )
 
   return (
@@ -564,7 +564,7 @@ export default function CaseDetailsPage({ basePath = '/lawyer' }: { basePath?: s
         {/* Sidebar */}
         <div className="space-y-5">
           <SectionCard icon={CalendarDays} title="শুনানির ইতিহাস" compact>
-            <p className="mb-2 text-[11px] text-muted">পুরোনো তারিখ উপরে · নতুন তারিখ নিচে</p>
+            <p className="mb-2 text-[11px] text-muted">নতুন তারিখ উপরে · পুরোনো তারিখ নিচে</p>
             {sortedHearings.length === 0 && !caseItem.nextHearingDate ? (
               <EmptyHint text="কোনো শুনানি নেই।" />
             ) : null}

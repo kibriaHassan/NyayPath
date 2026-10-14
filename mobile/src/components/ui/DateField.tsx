@@ -23,6 +23,10 @@ type Props = {
   clearOnFocus?: boolean
   /** Fri–Sat cannot be selected (court closed) */
   skipHolidays?: boolean
+  /** Inclusive YYYY-MM-DD lower bound */
+  minDate?: string
+  /** Inclusive YYYY-MM-DD upper bound */
+  maxDate?: string
 }
 
 const BN_DAYS = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি']
@@ -100,6 +104,8 @@ export function DateField({
   placeholder = 'YYYY-MM-DD',
   clearOnFocus,
   skipHolidays,
+  minDate,
+  maxDate,
 }: Props) {
   const c = useSettingsStore((s) => s.colors())
   const insets = useSafeAreaInsets()
@@ -119,7 +125,10 @@ export function DateField({
 
   const applyDate = (d: Date) => {
     if (skipHolidays && isCourtHoliday(d)) return
-    onChange(toYmd(d))
+    const key = toYmd(d)
+    if (minDate && key < minDate.slice(0, 10)) return
+    if (maxDate && key > maxDate.slice(0, 10)) return
+    onChange(key)
     setOpen(false)
   }
 
@@ -223,8 +232,11 @@ export function DateField({
               {cells.map((cell) => {
                 const key = toDateKey(cell.date)
                 const holiday = skipHolidays && isCourtHoliday(cell.date)
+                const outOfRange =
+                  Boolean(minDate && key < minDate.slice(0, 10)) ||
+                  Boolean(maxDate && key > maxDate.slice(0, 10))
                 const selected = value === key
-                const blocked = !cell.inMonth || holiday
+                const blocked = !cell.inMonth || holiday || outOfRange
                 return (
                   <Pressable
                     key={key}
@@ -235,7 +247,7 @@ export function DateField({
                     <View
                       style={[
                         styles.dayBubble,
-                        holiday ? { backgroundColor: '#D1D5DB' } : null,
+                        holiday || outOfRange ? { backgroundColor: '#D1D5DB' } : null,
                         selected ? { backgroundColor: c.primary } : null,
                       ]}
                     >
@@ -243,11 +255,12 @@ export function DateField({
                         style={{
                           color: !cell.inMonth
                             ? '#C5CDD6'
-                            : selected || holiday
+                            : selected || holiday || outOfRange
                               ? '#fff'
                               : c.text,
                           fontWeight: '700',
                           fontSize: 14,
+                          opacity: outOfRange && !selected ? 0.45 : 1,
                         }}
                       >
                         {cell.date.getDate()}
