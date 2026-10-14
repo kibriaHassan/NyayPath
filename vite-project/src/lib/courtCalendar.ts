@@ -172,3 +172,79 @@ export const HEARING_PURPOSE_OPTIONS = [
   { value: 'রায় ঘোষণা', label: 'রায় ঘোষণা' },
   { value: 'অন্যান্য', label: 'অন্যান্য' },
 ]
+
+export type CaseHearingRow = {
+  id: string
+  caseNumber: string
+  caseTitle?: string
+  title?: string
+  courtName?: string
+  status?: string
+  filingDate?: string
+  nextHearingDate?: string
+  nextHearingPurpose?: string
+  lastHearingDate?: string
+  /** All hearing dates for the case (including past backfilled dates). */
+  hearingDates?: string[]
+}
+
+function dayOf(value?: string) {
+  return dateKeyFromValue(value)
+}
+
+function caseHasHearingOnDay(item: CaseHearingRow, day: string) {
+  if ((item.hearingDates || []).some((d) => dayOf(d) === day)) return true
+  if (dayOf(item.lastHearingDate) === day) return true
+  if (dayOf(item.nextHearingDate) === day) return true
+  return false
+}
+
+/** Cases tied to a calendar day, split by whether the next date was entered. */
+export function casesForCalendarDay(list: CaseHearingRow[], day: string, today: string) {
+  const entered: CaseHearingRow[] = []
+  const missing: CaseHearingRow[] = []
+  for (const item of list) {
+    if (isClosedCaseStatus(item.status || '')) continue
+    const next = dayOf(item.nextHearingDate)
+    const last = dayOf(item.lastHearingDate)
+    const hadHearing = caseHasHearingOnDay(item, day)
+    if (next === day && day < today) {
+      missing.push(item)
+      continue
+    }
+    // Completed hearing day (next already advanced), past backfilled date, or same-day last/next
+    if (last === day && next && (next > day || next === day)) {
+      entered.push(item)
+      continue
+    }
+    if (hadHearing && next && next > day) {
+      entered.push(item)
+      continue
+    }
+    if (hadHearing && day < today && (!next || next !== day)) {
+      entered.push(item)
+      continue
+    }
+    if (next === day && day >= today) entered.push(item)
+  }
+  return { entered, missing, all: [...missing, ...entered] }
+}
+
+/** True when a case matches a calendar/search date (filing, next, last, or any hearing). */
+export function caseMatchesHearingDay(item: CaseHearingRow, day: string) {
+  const key = dayOf(day)
+  if (!key) return false
+  if (dayOf(item.filingDate) === key) return true
+  return caseHasHearingOnDay(item, key)
+}
+
+/** Days that stay red: at least one open case still has that past hearing date. */
+export function missingEntryDays(list: CaseHearingRow[], today: string) {
+  const days = new Set<string>()
+  for (const item of list) {
+    if (isClosedCaseStatus(item.status || '')) continue
+    const next = dayOf(item.nextHearingDate)
+    if (next && next < today) days.add(next)
+  }
+  return days
+}

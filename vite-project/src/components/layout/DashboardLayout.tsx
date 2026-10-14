@@ -72,6 +72,7 @@ export const lawyerNav: NavItem[] = [
     end: true,
     isActivePath: (p) => p === '/lawyer/cases/new' || p.startsWith('/lawyer/cases/new/'),
   },
+  { to: '/lawyer/calendar', label: 'মামলা ক্যালেন্ডার', icon: <Calendar className="h-4 w-4" /> },
   { to: '/lawyer/hearings', label: 'Upcoming Hearings', icon: <Calendar className="h-4 w-4" /> },
   { to: '/lawyer/staff', label: 'Staff Management', icon: <Users className="h-4 w-4" /> },
   { to: '/lawyer/documents', label: 'Documents', icon: <FolderOpen className="h-4 w-4" /> },
@@ -91,6 +92,7 @@ export const staffNav: NavItem[] = [
     showUrgentCount: true,
   },
   { to: '/staff/cases', label: 'My Assigned Cases', icon: <Briefcase className="h-4 w-4" /> },
+  { to: '/staff/calendar', label: 'মামলা ক্যালেন্ডার', icon: <Calendar className="h-4 w-4" /> },
   { to: '/staff/hearings', label: 'Upcoming Hearings', icon: <Calendar className="h-4 w-4" /> },
   { to: '/staff/tasks', label: 'Tasks', icon: <ClipboardList className="h-4 w-4" /> },
   { to: '/staff/documents', label: 'Documents', icon: <FileText className="h-4 w-4" /> },
@@ -244,7 +246,7 @@ export function DashboardLayout({
   const visibleNav = nav.filter((item) => {
     if (user?.role !== 'STAFF' || !staffPerms) return true
     if (item.to === '/staff/cases') return Boolean(staffPerms.viewCases || staffPerms.editCases || staffPerms.addCase)
-    if (item.to === '/staff/hearings' || item.to === '/staff/urgent') {
+    if (item.to === '/staff/hearings' || item.to === '/staff/calendar' || item.to === '/staff/urgent') {
       return Boolean(staffPerms.viewHearingDates || staffPerms.editHearingDates)
     }
     if (item.to === '/staff/tasks') return Boolean(staffPerms.manageTasks)

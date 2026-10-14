@@ -26,7 +26,7 @@ import {
 } from '@/lib/courtCalendar'
 import { cases as mockCases, getStaffById } from '@/data/mock'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 
 type Props = {
   cases: Case[]
@@ -232,15 +232,27 @@ export function HearingScheduleSections({
     notes?: string
   }) => {
     const prev = list.find((c) => c.id === payload.caseId)
+    if (!prev) return
+    const nextDate = String(payload.nextHearingDate || '').slice(0, 10)
+    const currentNext = String(prev.nextHearingDate || '').slice(0, 10)
+    const currentPurpose = String(prev.nextHearingPurpose || '').trim()
+    const purpose = String(payload.nextHearingPurpose || '').trim()
+    if (currentNext && currentNext === nextDate && currentPurpose === purpose) {
+      window.alert('এটি আগে এন্ট্রি হয়েছে।')
+      return
+    }
+    const today = new Date()
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const editing = Boolean(currentNext && currentNext >= todayKey)
     const updated: Case = {
-      ...prev!,
-      lastHearingDate: prev?.nextHearingDate,
-      nextHearingDate: payload.nextHearingDate,
-      nextHearingPurpose: payload.nextHearingPurpose,
+      ...prev,
+      lastHearingDate: editing ? prev.lastHearingDate : prev.nextHearingDate,
+      nextHearingDate: nextDate,
+      nextHearingPurpose: purpose,
       status: 'Hearing Scheduled',
       importantNotes: payload.notes
-        ? `${payload.notes}${prev?.importantNotes ? ` | ${prev.importantNotes}` : ''}`
-        : prev?.importantNotes || '',
+        ? `${payload.notes}${prev.importantNotes ? ` | ${prev.importantNotes}` : ''}`
+        : prev.importantNotes || '',
     }
     const nextList = list.map((c) => (c.id === payload.caseId ? updated : c))
     setList(nextList)
@@ -252,10 +264,20 @@ export function HearingScheduleSections({
     try {
       await api(`/cases/${payload.caseId}/next-hearing`, {
         method: 'PATCH',
-        body: payload,
+        body: { ...payload, nextHearingDate: nextDate },
       })
-    } catch {
-      // local update already applied (offline / mock)
+    } catch (err) {
+      const reverted = list.map((c) => (c.id === payload.caseId ? prev : c))
+      setList(reverted)
+      onCasesChange?.(reverted)
+      if (mockIdx >= 0) mockCases[mockIdx] = prev
+      const msg =
+        err instanceof ApiError
+          ? err.code === 'HEARING_ALREADY_ENTERED'
+            ? 'এটি আগে এন্ট্রি হয়েছে।'
+            : err.message
+          : 'সংরক্ষণ হয়নি।'
+      window.alert(msg)
     }
   }
 

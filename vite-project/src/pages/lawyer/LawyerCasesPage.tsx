@@ -7,7 +7,7 @@ import { Badge, statusBadgeVariant } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
-import { dateKeyFromValue, sortByNextHearing } from '@/lib/courtCalendar'
+import { caseMatchesHearingDay, sortByNextHearing } from '@/lib/courtCalendar'
 import { formatDate } from '@/lib/utils'
 import type { Case, Staff } from '@/types'
 
@@ -64,13 +64,7 @@ export default function LawyerCasesPage() {
       if (court && !c.courtName.toLowerCase().includes(court.toLowerCase())) return false
       if (type && c.caseType !== type) return false
       if (staff && !(c.assignedStaffIds || []).includes(staff)) return false
-      if (onDate) {
-        const day = dateKeyFromValue(onDate)
-        const dates = [c.nextHearingDate, c.filingDate, c.lastHearingDate].map((d) =>
-          dateKeyFromValue(d),
-        )
-        if (!dates.includes(day)) return false
-      }
+      if (onDate && !caseMatchesHearingDay(c, onDate)) return false
       return true
     })
   }, [list, q, status, court, type, staff, onDate])

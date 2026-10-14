@@ -4,13 +4,17 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { AppButton } from '../components/ui/AppButton'
 import { AppCard } from '../components/ui/AppCard'
 import { AppInput } from '../components/ui/AppInput'
+import { DateField } from '../components/ui/DateField'
+import { SelectField } from '../components/ui/SelectField'
 import { StatusPill } from '../components/ui/MenuRow'
+import { SuccessToast } from '../components/ui/SuccessToast'
 import { Screen } from '../components/ui/Screen'
 import { ScreenHeader } from '../components/ui/ScreenHeader'
 import { api, ApiError } from '../api/client'
 import { useStaffPerms } from '../hooks/useStaffPerms'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
+import { HEARING_PURPOSE_OPTIONS } from '../utils/courtCalendar'
 import type { RootStackParamList } from '../navigation/types'
 
 type CaseData = {
@@ -27,6 +31,7 @@ type CaseData = {
   plaintiffLawyerName?: string
   defendantLawyerName?: string
   nextHearingDate?: string
+  nextHearingPurpose?: string
   judgeName?: string
   description?: string
   filingDate?: string
@@ -43,7 +48,17 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true)
   const [hearingDate, setHearingDate] = useState('')
   const [purpose, setPurpose] = useState('')
+  const [customPurpose, setCustomPurpose] = useState('')
   const [note, setNote] = useState('')
+  const [toast, setToast] = useState<'success' | 'already' | null>(null)
+  const [toastMessage, setToastMessage] = useState('')
+  const [savingHearing, setSavingHearing] = useState(false)
+  const [showPastForm, setShowPastForm] = useState(false)
+  const [pastDate, setPastDate] = useState('')
+  const [pastPurpose, setPastPurpose] = useState('')
+  const [pastCustomPurpose, setPastCustomPurpose] = useState('')
+  const [pastNotes, setPastNotes] = useState('')
+  const [savingPast, setSavingPast] = useState(false)
   const { allow, isStaff } = useStaffPerms()
   const isLawyer = user?.role === 'LAWYER'
   const canEditCase = allow('editCases')
@@ -54,6 +69,15 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
     const apply = (data: CaseData) => {
       setItem(data)
       setHearingDate(data.nextHearingDate || '')
+      const p = data.nextHearingPurpose || ''
+      if (p && !HEARING_PURPOSE_OPTIONS.some((o) => o.value === p)) {
+        setPurpose('অন্যান্য')
+        setCustomPurpose(p)
+      } else {
+        setPurpose(p)
+        setCustomPurpose('')
+      }
+      setNote(data.importantNotes || '')
     }
     const load = async () => {
       try {
@@ -97,39 +121,111 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
   }
 
   const updateHearing = async () => {
-    if (!hearingDate.trim() || !purpose.trim()) return
+    const purposeValue = purpose === 'অন্যান্য' ? customPurpose.trim() : purpose.trim()
+    const nextDate = hearingDate.trim().slice(0, 10)
+    if (!nextDate || !purposeValue) {
+      Alert.alert(t('error'), 'পরবর্তী তারিখ এবং সেদিন কী হবে — দুটোই দিন')
+      return
+    }
+    const currentNext = String(item.nextHearingDate || '').slice(0, 10)
+    const currentPurpose = String(item.nextHearingPurpose || '').trim()
+    if (currentNext && currentNext === nextDate && currentPurpose === purposeValue) {
+      setToast('already')
+      return
+    }
+    if (savingHearing) return
+    setSavingHearing(true)
     try {
-      await api(`/cases/${item.id}/next-hearing`, {
+      const res = await api<{ data: CaseData }>(`/cases/${item.id}/next-hearing`, {
         method: 'PATCH',
-        body: { nextHearingDate: hearingDate.trim(), nextHearingPurpose: purpose.trim() },
+        body: { nextHearingDate: nextDate, nextHearingPurpose: purposeValue },
       })
-      setItem((prev) => ({ ...prev, nextHearingDate: hearingDate.trim() }))
-      Alert.alert(t('saved'))
+      setItem((prev) => ({
+        ...prev,
+        ...res.data,
+        nextHearingDate: res.data.nextHearingDate || nextDate,
+        nextHearingPurpose: res.data.nextHearingPurpose || purposeValue,
+      }))
+      setHearingDate(res.data.nextHearingDate || nextDate)
+      if (res.data.nextHearingPurpose) {
+        const p = res.data.nextHearingPurpose
+        if (!HEARING_PURPOSE_OPTIONS.some((o) => o.value === p)) {
+          setPurpose('অন্যান্য')
+          setCustomPurpose(p)
+        } else {
+          setPurpose(p)
+          setCustomPurpose('')
+        }
+      }
+      setToastMessage(t('hearingSaved'))
+      setToast('success')
     } catch (e) {
-      Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
+      if (e instanceof ApiError && e.code === 'HEARING_ALREADY_ENTERED') {
+        setToast('already')
+      } else {
+        Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
+      }
+    } finally {
+      setSavingHearing(false)
     }
   }
 
-  const withdraw = () => {
-    Alert.alert(t('withdrawCase'), item.caseNumber || '', [
-      { text: t('cancel'), style: 'cancel' },
-      {
-        text: t('withdrawCase'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api(`/cases/${item.id}/withdraw`, { method: 'POST' })
-            navigation.goBack()
-          } catch (e) {
-            Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
-          }
+  const savePastHearing = async () => {
+    if (!isLawyer) return
+    const purposeValue = pastPurpose === 'অন্যান্য' ? pastCustomPurpose.trim() : pastPurpose.trim()
+    const day = pastDate.trim().slice(0, 10)
+    if (!day || !purposeValue) {
+      Alert.alert(t('error'), 'পুরাতন তারিখ এবং সেদিন কী হয়েছিল — দুটোই দিন')
+      return
+    }
+    if (savingPast) return
+    setSavingPast(true)
+    try {
+      const res = await api<{ data: unknown; case: CaseData }>(`/cases/${item.id}/past-hearings`, {
+        method: 'POST',
+        body: {
+          hearingDate: day,
+          hearingType: purposeValue,
+          notes: pastNotes.trim() || undefined,
         },
-      },
-    ])
+      })
+      if (res.case) {
+        setItem((prev) => ({ ...prev, ...res.case }))
+      }
+      setPastDate('')
+      setPastPurpose('')
+      setPastCustomPurpose('')
+      setPastNotes('')
+      setShowPastForm(false)
+      setToastMessage(t('pastHearingSaved'))
+      setToast('success')
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'HEARING_ALREADY_ENTERED') {
+        setToast('already')
+      } else {
+        Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
+      }
+    } finally {
+      setSavingPast(false)
+    }
   }
 
   return (
     <Screen>
+      <SuccessToast
+        visible={toast === 'success'}
+        title="Success"
+        message={toastMessage || t('hearingSaved')}
+        variant="success"
+        onDone={() => setToast(null)}
+      />
+      <SuccessToast
+        visible={toast === 'already'}
+        title={t('hearingAlreadyEntered')}
+        message={t('hearingAlreadyHint')}
+        variant="already"
+        onDone={() => setToast(null)}
+      />
       <ScreenHeader title={t('cases')} onBack={() => navigation.goBack()} />
       {loading ? <Text style={{ color: c.textMuted }}>{t('loading')}</Text> : null}
       <AppCard>
@@ -147,9 +243,9 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
           <Row label={t('court')} value={item.courtName || '—'} c={c} />
           <Row label={t('division')} value={item.division || '—'} c={c} />
           <Row label={t('district')} value={item.district || '—'} c={c} />
+          <Row label={t('filingDate')} value={item.filingDate || '—'} c={c} />
           <Row label={t('nextHearing')} value={item.nextHearingDate || '—'} c={c} />
           <Row label={t('judge')} value={item.judgeName || '—'} c={c} />
-          <Row label={t('filingDate')} value={item.filingDate || '—'} c={c} />
           <Row label={`${t('lawyer')} (${t('plaintiffSide')})`} value={item.plaintiffLawyerName || '—'} c={c} />
           <Row label={`${t('lawyer')} (${t('defendantSide')})`} value={item.defendantLawyerName || '—'} c={c} />
         </View>
@@ -162,17 +258,117 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
         ) : null}
       </AppCard>
 
-      {canHearing || canEditCase || canNotes || isLawyer ? (
+      <View style={{ gap: 10, marginTop: 14 }}>
+        <AppButton
+          title={t('hearingHistory')}
+          variant="outline"
+          fullWidth
+          onPress={() =>
+            navigation.navigate('CaseHearingHistory', {
+              caseId: item.id,
+              caseNumber: item.caseNumber,
+              filingDate: item.filingDate,
+              nextHearingDate: item.nextHearingDate,
+              nextHearingPurpose: item.nextHearingPurpose,
+              courtName: item.courtName,
+            })
+          }
+        />
+      </View>
+
+      {isLawyer ? (
+        <AppCard style={{ gap: 10, marginTop: 14 }}>
+          <Text style={{ color: c.text, fontWeight: '800', fontSize: 15 }}>{t('pastHearingDate')}</Text>
+          <Text style={{ color: c.textMuted, fontSize: 12, lineHeight: 18 }}>{t('addPastHearingHint')}</Text>
+          <AppButton
+            title={showPastForm ? t('close') : t('addPastHearing')}
+            variant="outline"
+            fullWidth
+            onPress={() => setShowPastForm((v) => !v)}
+          />
+          {showPastForm ? (
+            <>
+              <DateField
+                label={t('pastHearingDate')}
+                value={pastDate}
+                onChange={setPastDate}
+                skipHolidays
+                placeholder="YYYY-MM-DD"
+              />
+              <SelectField
+                label={t('description')}
+                value={pastPurpose}
+                placeholder="সেদিন কী হয়েছিল"
+                options={HEARING_PURPOSE_OPTIONS}
+                onChange={(v) => {
+                  setPastPurpose(v)
+                  if (v !== 'অন্যান্য') setPastCustomPurpose('')
+                }}
+              />
+              {pastPurpose === 'অন্যান্য' ? (
+                <AppInput
+                  label="অন্যান্য বিবরণ"
+                  value={pastCustomPurpose}
+                  onChangeText={setPastCustomPurpose}
+                  placeholder="লিখুন"
+                />
+              ) : null}
+              <AppInput
+                label={t('importantNotes')}
+                value={pastNotes}
+                onChangeText={setPastNotes}
+                placeholder="ঐচ্ছিক"
+              />
+              <AppButton
+                title={savingPast ? t('loading') : t('save')}
+                onPress={() => void savePastHearing()}
+                disabled={savingPast}
+                fullWidth
+              />
+            </>
+          ) : null}
+        </AppCard>
+      ) : null}
+
+      {canHearing || canEditCase || canNotes ? (
         <View style={{ gap: 10, marginTop: 14 }}>
           {canHearing ? (
             <AppCard style={{ gap: 10 }}>
-              <AppInput
-                label={`${t('nextHearing')} (YYYY-MM-DD)`}
+              <Text style={{ color: c.textMuted, fontSize: 12, lineHeight: 18 }}>
+                পরবর্তী তারিখ আসা পর্যন্ত এডিট করা যাবে — নতুন তারিখ দিলে আগেরটি বদলে যাবে।
+              </Text>
+              <DateField
+                label={t('nextHearing')}
                 value={hearingDate}
-                onChangeText={setHearingDate}
+                onChange={setHearingDate}
+                clearOnFocus
+                skipHolidays
+                placeholder="YYYY-MM-DD"
               />
-              <AppInput label={t('description')} value={purpose} onChangeText={setPurpose} />
-              <AppButton title={t('updateHearing')} onPress={updateHearing} fullWidth />
+              <SelectField
+                label={t('description')}
+                value={purpose}
+                placeholder="সেদিন কী হবে — রায়, আদেশ…"
+                options={HEARING_PURPOSE_OPTIONS}
+                onChange={(v) => {
+                  setPurpose(v)
+                  if (v !== 'অন্যান্য') setCustomPurpose('')
+                }}
+              />
+              {purpose === 'অন্যান্য' ? (
+                <AppInput
+                  label="অন্যান্য বিবরণ"
+                  value={customPurpose}
+                  onChangeText={setCustomPurpose}
+                  placeholder="লিখুন"
+                />
+              ) : null}
+              <AppButton
+                title={savingHearing ? t('loading') : t('updateHearing')}
+                onPress={() => void updateHearing()}
+                disabled={savingHearing}
+                fullWidth
+              />
             </AppCard>
           ) : null}
           {canNotes ? (
@@ -193,9 +389,6 @@ export function CaseDetailsScreen({ navigation, route }: Props) {
               }
               fullWidth
             />
-          ) : null}
-          {isLawyer ? (
-            <AppButton title={t('withdrawCase')} variant="danger" onPress={withdraw} fullWidth />
           ) : null}
         </View>
       ) : null}

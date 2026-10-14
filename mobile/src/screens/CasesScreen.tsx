@@ -15,7 +15,7 @@ import { AppMenuButton } from '../components/nav/AppDrawer'
 import { api, API_BASE, ApiError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
-import { sortByNextHearing } from '../utils/courtCalendar'
+import { caseMatchesHearingDay, sortByNextHearing } from '../utils/courtCalendar'
 import type { LawyerTabParamList, StaffTabParamList } from '../navigation/types'
 
 type CaseItem = {
@@ -28,6 +28,7 @@ type CaseItem = {
   nextHearingDate?: string
   filingDate?: string
   lastHearingDate?: string
+  hearingDates?: string[]
   district?: string
   plaintiff?: string
   defendant?: string
@@ -35,10 +36,6 @@ type CaseItem = {
 }
 
 type StaffRow = { id: string; name: string; staffCode?: string; active?: boolean }
-
-function onDate(value: string | undefined, day: string) {
-  return Boolean(value && (value.slice(0, 10) === day || value.startsWith(day)))
-}
 
 type Props =
   | BottomTabScreenProps<LawyerTabParamList, 'Cases'>
@@ -139,14 +136,7 @@ export function CasesScreen({ navigation, route }: Props) {
         if (!blob.includes(name)) return false
       }
       if (number && !String(item.caseNumber || '').toLowerCase().includes(number)) return false
-      if (
-        day &&
-        !onDate(item.nextHearingDate, day) &&
-        !onDate(item.filingDate, day) &&
-        !onDate(item.lastHearingDate, day)
-      ) {
-        return false
-      }
+      if (day && !caseMatchesHearingDay(item, day)) return false
       if (applied.staffId === '__self__') {
         if ((item.assignedStaffIds || []).length > 0) return false
       } else if (applied.staffId && !(item.assignedStaffIds || []).includes(applied.staffId)) return false

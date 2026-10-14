@@ -6,34 +6,44 @@ type Props = {
   visible: boolean
   title?: string
   message?: string
+  /** success = teal check; already = large amber notice */
+  variant?: 'success' | 'already'
   onDone?: () => void
 }
 
-/** Blue success overlay — English copy, no system Alert chrome */
+/** Overlay notice — success or “already entered” */
 export function SuccessToast({
   visible,
   title = 'Success',
   message = 'Case saved successfully.',
+  variant = 'success',
   onDone,
 }: Props) {
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
+  const isAlready = variant === 'already'
 
   useEffect(() => {
     if (!visible) return
-    const id = setTimeout(() => onDoneRef.current?.(), 2000)
+    const id = setTimeout(() => onDoneRef.current?.(), isAlready ? 2600 : 2000)
     return () => clearTimeout(id)
-  }, [visible])
+  }, [visible, isAlready])
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
       <Pressable style={styles.backdrop} onPress={onDone}>
-        <View style={styles.card}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="checkmark-circle" size={36} color="#ffffff" />
+        <View style={[styles.card, isAlready ? styles.cardAlready : styles.cardSuccess]}>
+          <View style={[styles.iconWrap, isAlready ? styles.iconAlready : null]}>
+            <Ionicons
+              name={isAlready ? 'information-circle' : 'checkmark-circle'}
+              size={isAlready ? 44 : 36}
+              color="#ffffff"
+            />
           </View>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          <Text style={[styles.title, isAlready ? styles.titleAlready : null]}>{title}</Text>
+          {message ? (
+            <Text style={[styles.message, isAlready ? styles.messageAlready : null]}>{message}</Text>
+          ) : null}
         </View>
       </Pressable>
     </Modal>
@@ -50,17 +60,24 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 340,
     borderRadius: 22,
     paddingVertical: 28,
     paddingHorizontal: 24,
-    backgroundColor: '#146a74',
     alignItems: 'center',
-    shadowColor: '#0a3a42',
     shadowOpacity: 0.35,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
+  },
+  cardSuccess: {
+    backgroundColor: '#146a74',
+    shadowColor: '#0a3a42',
+  },
+  cardAlready: {
+    backgroundColor: '#b45309',
+    shadowColor: '#7c2d12',
+    paddingVertical: 32,
   },
   iconWrap: {
     width: 64,
@@ -71,11 +88,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 14,
   },
+  iconAlready: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
   title: {
     color: '#ffffff',
     fontSize: 22,
     fontWeight: '800',
     letterSpacing: 0.2,
+    textAlign: 'center',
+  },
+  titleAlready: {
+    fontSize: 26,
+    lineHeight: 34,
+    paddingHorizontal: 4,
   },
   message: {
     color: 'rgba(255,255,255,0.9)',
@@ -84,5 +112,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,
+  },
+  messageAlready: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: 10,
   },
 })

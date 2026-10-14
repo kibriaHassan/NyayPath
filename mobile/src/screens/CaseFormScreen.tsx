@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Alert, Pressable, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { AppButton } from '../components/ui/AppButton'
@@ -21,6 +21,7 @@ import {
 } from '../data/locations'
 import { useAuthStore } from '../store/authStore'
 import { useSettingsStore, useT } from '../store/settingsStore'
+import { HEARING_PURPOSE_OPTIONS } from '../utils/courtCalendar'
 import type { RootStackParamList } from '../navigation/types'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CaseForm'>
@@ -75,7 +76,15 @@ export function CaseFormScreen({ navigation, route }: Props) {
   const [formError, setFormError] = useState('')
   const [successVisible, setSuccessVisible] = useState(false)
   const [successMessage, setSuccessMessage] = useState('Case saved successfully.')
+  const [showPastForm, setShowPastForm] = useState(false)
+  const [pastDate, setPastDate] = useState('')
+  const [pastPurpose, setPastPurpose] = useState('')
+  const [pastCustomPurpose, setPastCustomPurpose] = useState('')
+  const [pastNotes, setPastNotes] = useState('')
+  const [savingPast, setSavingPast] = useState(false)
+  const [pastMsg, setPastMsg] = useState('')
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isLawyer = user?.role === 'LAWYER'
 
   useEffect(() => {
     return () => {
@@ -369,12 +378,120 @@ export function CaseFormScreen({ navigation, route }: Props) {
             onChange={setFilingDate}
             placeholder="2025-11-12"
           />
+
+          {isLawyer ? (
+            <View
+              style={{
+                gap: 10,
+                padding: 12,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderStyle: 'dashed',
+                borderColor: c.primary + '66',
+                backgroundColor: c.primary + '0D',
+              }}
+            >
+              <Text style={{ color: c.text, fontWeight: '800' }}>{t('pastHearingDate')}</Text>
+              <Text style={{ color: c.textMuted, fontSize: 12, lineHeight: 18 }}>
+                {mode === 'edit' && caseId ? t('addPastHearingHint') : t('pastHearingAfterSave')}
+              </Text>
+              {mode === 'edit' && caseId ? (
+                <>
+                  <AppButton
+                    title={showPastForm ? t('close') : t('addPastHearing')}
+                    variant="outline"
+                    fullWidth
+                    onPress={() => setShowPastForm((v) => !v)}
+                  />
+                  {showPastForm ? (
+                    <>
+                      <DateField
+                        label={t('pastHearingDate')}
+                        value={pastDate}
+                        onChange={setPastDate}
+                        skipHolidays
+                        placeholder="YYYY-MM-DD"
+                      />
+                      <SelectField
+                        label={t('description')}
+                        value={pastPurpose}
+                        placeholder="সেদিন কী হয়েছিল"
+                        options={HEARING_PURPOSE_OPTIONS}
+                        onChange={(v) => {
+                          setPastPurpose(v)
+                          if (v !== 'অন্যান্য') setPastCustomPurpose('')
+                        }}
+                      />
+                      {pastPurpose === 'অন্যান্য' ? (
+                        <AppInput
+                          label="অন্যান্য বিবরণ"
+                          value={pastCustomPurpose}
+                          onChangeText={setPastCustomPurpose}
+                        />
+                      ) : null}
+                      <AppInput
+                        label={t('importantNotes')}
+                        value={pastNotes}
+                        onChangeText={setPastNotes}
+                        placeholder="ঐচ্ছিক"
+                      />
+                      {pastMsg ? (
+                        <Text style={{ color: c.primary, fontWeight: '700', fontSize: 13 }}>{pastMsg}</Text>
+                      ) : null}
+                      <AppButton
+                        title={savingPast ? t('loading') : t('save')}
+                        disabled={savingPast}
+                        fullWidth
+                        onPress={() => {
+                          void (async () => {
+                            const purposeValue =
+                              pastPurpose === 'অন্যান্য'
+                                ? pastCustomPurpose.trim()
+                                : pastPurpose.trim()
+                            const day = pastDate.trim().slice(0, 10)
+                            if (!day || !purposeValue) {
+                              setPastMsg('তারিখ ও বিবরণ দুটোই দিন।')
+                              return
+                            }
+                            setSavingPast(true)
+                            setPastMsg('')
+                            try {
+                              await api(`/cases/${caseId}/past-hearings`, {
+                                method: 'POST',
+                                body: {
+                                  hearingDate: day,
+                                  hearingType: purposeValue,
+                                  notes: pastNotes.trim() || undefined,
+                                },
+                              })
+                              setPastDate('')
+                              setPastPurpose('')
+                              setPastCustomPurpose('')
+                              setPastNotes('')
+                              setPastMsg(t('pastHearingSaved'))
+                            } catch (e) {
+                              setPastMsg(e instanceof ApiError ? e.message : t('error'))
+                            } finally {
+                              setSavingPast(false)
+                            }
+                          })()
+                        }}
+                      />
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
           <DateField
             label={t('nextHearing')}
             required
             value={nextHearingDate}
             onChange={setNextHearingDate}
             placeholder="2026-10-15"
+            clearOnFocus={mode === 'edit'}
+            skipHolidays
           />
 
           <AppInput label={t('plaintiff')} required value={plaintiff} onChangeText={setPlaintiff} />
@@ -484,6 +601,31 @@ export function CaseFormScreen({ navigation, route }: Props) {
             disabled={saving}
             fullWidth
           />
+          {mode === 'edit' && user?.role === 'LAWYER' && caseId ? (
+            <AppButton
+              title={t('withdrawCase')}
+              variant="danger"
+              disabled={saving}
+              fullWidth
+              onPress={() => {
+                Alert.alert(t('withdrawCase'), caseNumber || '', [
+                  { text: t('cancel'), style: 'cancel' },
+                  {
+                    text: t('withdrawCase'),
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await api(`/cases/${caseId}/withdraw`, { method: 'POST' })
+                        navigation.goBack()
+                      } catch (e) {
+                        Alert.alert(t('error'), e instanceof ApiError ? e.message : t('error'))
+                      }
+                    },
+                  },
+                ])
+              }}
+            />
+          ) : null}
         </AppCard>
       </View>
     </Screen>

@@ -108,6 +108,8 @@ export interface Case {
   /** What will happen on the next hearing date */
   nextHearingPurpose?: string
   lastHearingDate?: string
+  /** All recorded hearing dates (past + next), for calendar/search */
+  hearingDates?: string[]
   judgeName: string
   description: string
   assignedStaffIds: string[]

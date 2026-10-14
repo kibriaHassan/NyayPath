@@ -23,6 +23,7 @@ import { SettingsScreen } from '../screens/SettingsScreen'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CasesScreen } from '../screens/CasesScreen'
 import { CaseDetailsScreen } from '../screens/CaseDetailsScreen'
+import { CaseHearingHistoryScreen } from '../screens/CaseHearingHistoryScreen'
 import { CaseFormScreen } from '../screens/CaseFormScreen'
 import { LawyerProfileScreen } from '../screens/LawyerProfileScreen'
 import { LawyerOwnProfileScreen } from '../screens/LawyerOwnProfileScreen'
@@ -302,6 +303,7 @@ export function RootNavigator() {
         <Stack.Screen name="LawyerTabs" component={LawyerTabNavigator} />
         <Stack.Screen name="StaffTabs" component={StaffTabNavigator} />
         <Stack.Screen name="CaseDetails" component={CaseDetailsScreen} />
+        <Stack.Screen name="CaseHearingHistory" component={CaseHearingHistoryScreen} />
         <Stack.Screen name="CaseForm" component={CaseFormScreen} />
         <Stack.Screen name="LawyerProfile" component={LawyerProfileScreen} />
         <Stack.Screen name="LawyerOwnProfile" component={LawyerOwnProfileScreen} />

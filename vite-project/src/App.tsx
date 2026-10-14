@@ -25,6 +25,7 @@ import LawyerCasesPage from '@/pages/lawyer/LawyerCasesPage'
 import LawyerCaseFormPage from '@/pages/lawyer/LawyerCaseFormPage'
 import CaseDetailsPage from '@/pages/lawyer/CaseDetailsPage'
 import LawyerHearingsPage from '@/pages/lawyer/LawyerHearingsPage'
+import CaseCalendarPage from '@/pages/shared/CaseCalendarPage'
 import LawyerStaffPage from '@/pages/lawyer/LawyerStaffPage'
 import LawyerStaffDetailsPage from '@/pages/lawyer/LawyerStaffDetailsPage'
 import LawyerProfilePage from '@/pages/lawyer/LawyerProfilePage'
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="cases/new" element={<LawyerCaseFormPage mode="create" />} />
           <Route path="cases/:id" element={<CaseDetailsPage basePath="/lawyer" />} />
           <Route path="cases/:id/edit" element={<LawyerCaseFormPage mode="edit" />} />
+          <Route path="calendar" element={<CaseCalendarPage basePath="/lawyer" />} />
           <Route path="hearings" element={<LawyerHearingsPage />} />
           <Route path="staff" element={<LawyerStaffPage />} />
           <Route path="staff/:id" element={<LawyerStaffDetailsPage />} />
@@ -100,6 +102,7 @@ export default function App() {
             <Route path="cases/new" element={<LawyerCaseFormPage mode="create" />} />
             <Route path="cases/:id" element={<CaseDetailsPage basePath="/staff" />} />
             <Route path="cases/:id/edit" element={<LawyerCaseFormPage mode="edit" />} />
+            <Route path="calendar" element={<CaseCalendarPage basePath="/staff" />} />
             <Route path="hearings" element={<StaffHearingsPage />} />
             <Route path="tasks" element={<TasksPage forStaff />} />
             <Route path="documents" element={<DocumentsPage forStaff />} />

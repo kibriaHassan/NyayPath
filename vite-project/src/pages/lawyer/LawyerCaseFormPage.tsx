@@ -13,9 +13,10 @@ import { cases, staffMembers } from '@/data/mock'
 import { api, ApiError } from '@/lib/api'
 import { courtTypeLabel, findDivisionByDistrict, inferCourtType } from '@/lib/bdLocations'
 import { caseNumberHint, normalizeCaseNumber } from '@/lib/caseNumber'
+import { HEARING_PURPOSE_OPTIONS } from '@/lib/courtCalendar'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
-import type { Case, Staff } from '@/types'
+import type { Case, Hearing, Staff } from '@/types'
 
 type Side = 'plaintiff' | 'defendant'
 
@@ -87,12 +88,30 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
   const [saved, setSaved] = useState(false)
   const [info, setInfo] = useState('')
   const [match, setMatch] = useState<MatchPreview | null>(null)
+  const [showPastForm, setShowPastForm] = useState(false)
+  const [pastDate, setPastDate] = useState('')
+  const [pastPurpose, setPastPurpose] = useState('')
+  const [pastCustomPurpose, setPastCustomPurpose] = useState('')
+  const [pastNotes, setPastNotes] = useState('')
+  const [pastList, setPastList] = useState<Hearing[]>([])
+  const [savingPast, setSavingPast] = useState(false)
+  const [pastMsg, setPastMsg] = useState('')
 
   useEffect(() => {
     api<{ data: Staff[] }>('/staff')
       .then((res) => setMyStaff((res.data || []).filter((s) => s.active)))
       .catch(() => setMyStaff(staffMembers.filter((s) => s.lawyerId === user?.id && s.active)))
   }, [user?.id])
+
+  useEffect(() => {
+    if (mode !== 'edit' || !id) {
+      setPastList([])
+      return
+    }
+    api<{ data: Hearing[] }>('/hearings')
+      .then((res) => setPastList((res.data || []).filter((h) => h.caseId === id)))
+      .catch(() => setPastList([]))
+  }, [mode, id])
 
   useEffect(() => {
     if (mode !== 'edit' || !id) return
@@ -473,6 +492,118 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           value={form.filingDate}
           onChange={(e) => set('filingDate', e.target.value)}
         />
+
+        {user?.role === 'LAWYER' ? (
+          <div className="sm:col-span-2 rounded-xl border border-dashed border-teal/35 bg-teal/[0.03] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-ink">পুরাতন শুনানির তারিখ</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  {mode === 'edit' && id
+                    ? 'দাখিল ও পরবর্তী তারিখের মাঝের পুরোনো শুনানি এখানে যোগ করুন (শুধু উকিল)।'
+                    : 'মামলা সেভ করার পর এখানে বা মামলার বিস্তারিত পেজে পুরাতন তারিখ যোগ করতে পারবেন।'}
+                </p>
+              </div>
+              {mode === 'edit' && id ? (
+                <Button
+                  type="button"
+                  variant={showPastForm ? 'outline' : 'secondary'}
+                  size="sm"
+                  onClick={() => setShowPastForm((v) => !v)}
+                >
+                  {showPastForm ? 'বন্ধ' : 'পুরাতন তারিখ যোগ'}
+                </Button>
+              ) : null}
+            </div>
+            {mode === 'edit' && id && pastList.length > 0 ? (
+              <ul className="mt-3 space-y-1.5">
+                {[...pastList]
+                  .sort((a, b) => String(a.hearingDate).localeCompare(String(b.hearingDate)))
+                  .map((h) => (
+                    <li key={h.id} className="text-xs text-muted">
+                      <span className="font-semibold text-ink">{h.hearingDate}</span>
+                      {h.hearingType ? ` · ${h.hearingType}` : ''}
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
+            {showPastForm && mode === 'edit' && id ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="পুরাতন তারিখ"
+                  type="date"
+                  value={pastDate}
+                  onChange={(e) => setPastDate(e.target.value)}
+                />
+                <Select
+                  label="সেদিন কী হয়েছিল"
+                  value={pastPurpose}
+                  placeholder="রায়, আদেশ…"
+                  options={HEARING_PURPOSE_OPTIONS}
+                  onChange={(e) => {
+                    setPastPurpose(e.target.value)
+                    if (e.target.value !== 'অন্যান্য') setPastCustomPurpose('')
+                  }}
+                />
+                {pastPurpose === 'অন্যান্য' ? (
+                  <Input
+                    label="অন্যান্য বিবরণ"
+                    value={pastCustomPurpose}
+                    onChange={(e) => setPastCustomPurpose(e.target.value)}
+                  />
+                ) : null}
+                <div className="sm:col-span-2">
+                  <Input
+                    label="নোট (ঐচ্ছিক)"
+                    value={pastNotes}
+                    onChange={(e) => setPastNotes(e.target.value)}
+                  />
+                </div>
+                {pastMsg ? <p className="sm:col-span-2 text-sm text-teal">{pastMsg}</p> : null}
+                <div className="sm:col-span-2">
+                  <Button
+                    type="button"
+                    disabled={savingPast}
+                    onClick={async () => {
+                      const purposeValue =
+                        pastPurpose === 'অন্যান্য' ? pastCustomPurpose.trim() : pastPurpose.trim()
+                      const day = pastDate.trim().slice(0, 10)
+                      if (!day || !purposeValue) {
+                        setPastMsg('তারিখ ও বিবরণ দুটোই দিন।')
+                        return
+                      }
+                      setSavingPast(true)
+                      setPastMsg('')
+                      try {
+                        const res = await api<{ data: Hearing }>(`/cases/${id}/past-hearings`, {
+                          method: 'POST',
+                          body: {
+                            hearingDate: day,
+                            hearingType: purposeValue,
+                            notes: pastNotes.trim() || undefined,
+                          },
+                        })
+                        setPastList((prev) => [...prev.filter((h) => h.id !== res.data.id), res.data])
+                        setPastDate('')
+                        setPastPurpose('')
+                        setPastCustomPurpose('')
+                        setPastNotes('')
+                        setPastMsg('পুরাতন তারিখ এন্ট্রি হয়েছে।')
+                      } catch (err) {
+                        setPastMsg(err instanceof ApiError ? err.message : 'সংরক্ষণ হয়নি।')
+                      } finally {
+                        setSavingPast(false)
+                      }
+                    }}
+                  >
+                    {savingPast ? 'সংরক্ষণ হচ্ছে…' : 'পুরাতন তারিখ সংরক্ষণ'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <Input
           label="Next Hearing Date"
           type="date"
@@ -480,6 +611,7 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           value={form.nextHearingDate}
           onChange={(e) => set('nextHearingDate', e.target.value)}
         />
+
         <Input
           label="বাদী"
           required
@@ -579,6 +711,30 @@ export default function LawyerCaseFormPage({ mode = 'create' }: { mode?: 'create
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>
             বাতিল
           </Button>
+          {mode === 'edit' && id && user?.role === 'LAWYER' ? (
+            <Button
+              type="button"
+              variant="danger"
+              disabled={saving}
+              onClick={async () => {
+                if (
+                  !confirm(
+                    'আপনি এই মামলা পরিচালনা বন্ধ করতে চান? আপনার নাম এই পক্ষ থেকে কেটে যাবে।',
+                  )
+                ) {
+                  return
+                }
+                try {
+                  await api(`/cases/${id}/withdraw`, { method: 'POST', body: {} })
+                  navigate(user?.role === 'STAFF' ? '/staff/cases' : '/lawyer/cases')
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : 'সরানো যায়নি।')
+                }
+              }}
+            >
+              মামলা থেকে সরে যান
+            </Button>
+          ) : null}
         </div>
         </section>
       </form>

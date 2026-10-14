@@ -18,6 +18,14 @@ export type RootStackParamList = {
     id: string
     preview?: Record<string, unknown>
   }
+  CaseHearingHistory: {
+    caseId: string
+    caseNumber?: string
+    filingDate?: string
+    nextHearingDate?: string
+    nextHearingPurpose?: string
+    courtName?: string
+  }
   CaseForm: {
     mode: 'create' | 'edit'
     id?: string

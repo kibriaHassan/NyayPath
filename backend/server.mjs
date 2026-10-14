@@ -1431,6 +1431,51 @@ function applyDemoHearingSchedule(database) {
   return database
 }
 
+/** Remove same-day duplicate hearing rows and restore lastHearingDate after bad double-saves. */
+function repairDuplicateHearings(database) {
+  let dirty = false
+  const hearings = Array.isArray(database.hearings) ? database.hearings : []
+  const seen = new Set()
+  const cleaned = []
+  for (const h of hearings) {
+    const key = `${h.caseId}|${hearingDayKey(h.hearingDate)}`
+    if (seen.has(key)) {
+      dirty = true
+      continue
+    }
+    seen.add(key)
+    cleaned.push(h)
+  }
+  if (dirty) database.hearings = cleaned
+
+  for (const c of database.cases || []) {
+    const next = hearingDayKey(c.nextHearingDate)
+    const last = hearingDayKey(c.lastHearingDate)
+    const dates = [
+      ...new Set(
+        (database.hearings || [])
+          .filter((h) => h.caseId === c.id)
+          .map((h) => hearingDayKey(h.hearingDate))
+          .filter(Boolean),
+      ),
+    ].sort()
+    if (next && last === next) {
+      const prev = dates.filter((d) => d < next).pop() || ''
+      if (prev !== last) {
+        c.lastHearingDate = prev
+        dirty = true
+      }
+    } else if (next && !last) {
+      const prev = dates.filter((d) => d < next).pop()
+      if (prev) {
+        c.lastHearingDate = prev
+        dirty = true
+      }
+    }
+  }
+  return dirty
+}
+
 function loadDbFromDisk() {
   if (!existsSync(DB_FILE)) {
     const seeded = applyDemoHearingSchedule(seedDb())
@@ -1474,7 +1519,8 @@ async function initDatabase() {
       const dirtyCases = ensureCaseLocations(db)
       const dirtyMulti = ensureMultiCourtSearchCases(db)
       const dirtyAdmin = ensureAdminCatalog(db)
-      if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin) saveDb(db)
+      const dirtyHearings = repairDuplicateHearings(db)
+      if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin || dirtyHearings) saveDb(db)
       else writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8')
       const counts = await getCollectionCounts()
       console.log('[MongoDB] Collections loaded:', counts)
@@ -1502,7 +1548,8 @@ async function initDatabase() {
   const dirtyCases = ensureCaseLocations(db)
   const dirtyMulti = ensureMultiCourtSearchCases(db)
   const dirtyAdmin = ensureAdminCatalog(db)
-  if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin) saveDb(db)
+  const dirtyHearings = repairDuplicateHearings(db)
+  if (dirtyStaff || dirtyCases || dirtyMulti || dirtyAdmin || dirtyHearings) saveDb(db)
   else writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8')
   console.log('[DB] Using local JSON:', DB_FILE)
 }
@@ -1984,12 +2031,23 @@ async function handler(req, res) {
         return da.localeCompare(db)
       })
       return json(res, 200, {
-        data: sorted.map((c) => ({
-          ...c,
-          nextHearingDate: hearingDayKey(c.nextHearingDate),
-          lastHearingDate: hearingDayKey(c.lastHearingDate),
-          filingDate: hearingDayKey(c.filingDate) || c.filingDate || '',
-        })),
+        data: sorted.map((c) => {
+          const hearingDates = [
+            ...new Set(
+              (db.hearings || [])
+                .filter((h) => h.caseId === c.id)
+                .map((h) => hearingDayKey(h.hearingDate))
+                .filter(Boolean),
+            ),
+          ].sort()
+          return {
+            ...c,
+            nextHearingDate: hearingDayKey(c.nextHearingDate),
+            lastHearingDate: hearingDayKey(c.lastHearingDate),
+            filingDate: hearingDayKey(c.filingDate) || c.filingDate || '',
+            hearingDates,
+          }
+        }),
       }, req)
     }
 
@@ -2274,35 +2332,237 @@ async function handler(req, res) {
       if (!body.nextHearingDate || !body.nextHearingPurpose) {
         return json(res, 400, { error: 'পরবর্তী তারিখ এবং সেদিন কী হবে — দুটোই আবশ্যক।' }, req)
       }
-      const day = new Date(String(body.nextHearingDate).slice(0, 10) + 'T00:00:00')
+      const nextDate = String(body.nextHearingDate).slice(0, 10)
+      const purpose = String(body.nextHearingPurpose).trim()
+      const day = new Date(nextDate + 'T00:00:00')
+      if (Number.isNaN(day.getTime())) {
+        return json(res, 400, { error: 'তারিখ সঠিক নয়।' }, req)
+      }
       if (day.getDay() === 5 || day.getDay() === 6) {
         return json(res, 400, { error: 'শুক্রবার/শনিবার আদালত বন্ধ।' }, req)
       }
+      const today = toDateKey(new Date())
+      if (nextDate < today) {
+        return json(
+          res,
+          400,
+          { error: 'চলে যাওয়া তারিখ এডিট করা যায় না। আজ বা ভবিষ্যতের পরবর্তী তারিখ দিন।' },
+          req,
+        )
+      }
+      const currentNext =
+        hearingDayKey(existing.nextHearingDate) || String(existing.nextHearingDate || '').slice(0, 10)
+      const currentPurpose = String(existing.nextHearingPurpose || '').trim()
+
+      // Same upcoming date + same purpose → already entered (no duplicate)
+      if (currentNext && currentNext === nextDate && currentPurpose === purpose) {
+        return json(
+          res,
+          409,
+          {
+            error: 'এটি আগে এন্ট্রি হয়েছে।',
+            code: 'HEARING_ALREADY_ENTERED',
+            data: existing,
+          },
+          req,
+        )
+      }
+
+      const notesValue = body.notes
+        ? `${body.notes}${existing.importantNotes ? ` | ${existing.importantNotes}` : ''}`
+        : existing.importantNotes
+
+      // Until the current next date has passed, replace it in place (only one next date)
+      const canEditCurrent = Boolean(currentNext && currentNext >= today)
+      if (canEditCurrent) {
+        if (nextDate !== currentNext) {
+          const taken = (db.hearings || []).some(
+            (h) =>
+              h.caseId === existing.id &&
+              hearingDayKey(h.hearingDate) === nextDate &&
+              hearingDayKey(h.hearingDate) !== currentNext,
+          )
+          if (taken) {
+            return json(
+              res,
+              409,
+              {
+                error: 'এটি আগে এন্ট্রি হয়েছে।',
+                code: 'HEARING_ALREADY_ENTERED',
+                data: existing,
+              },
+              req,
+            )
+          }
+        }
+        db.cases[idx] = {
+          ...existing,
+          nextHearingDate: nextDate,
+          nextHearingPurpose: purpose,
+          status: 'Hearing Scheduled',
+          importantNotes: notesValue,
+        }
+        const hIdx = (db.hearings || []).findIndex(
+          (h) => h.caseId === existing.id && hearingDayKey(h.hearingDate) === currentNext,
+        )
+        if (hIdx >= 0) {
+          db.hearings[hIdx] = {
+            ...db.hearings[hIdx],
+            hearingDate: nextDate,
+            hearingType: purpose,
+            notes: body.notes || db.hearings[hIdx].notes || '',
+            caseNumber: existing.caseNumber,
+            caseTitle: existing.caseTitle,
+            court: existing.courtName,
+          }
+        } else {
+          db.hearings.push({
+            id: uid('hr'),
+            caseId: existing.id,
+            caseNumber: existing.caseNumber,
+            caseTitle: existing.caseTitle,
+            hearingDate: nextDate,
+            hearingTime: body.hearingTime || '10:30',
+            court: existing.courtName,
+            hearingType: purpose,
+            notes: body.notes || '',
+            responsibleStaffId: existing.assignedStaffIds?.[0],
+            lawyerId: existing.ownerLawyerId,
+          })
+        }
+        saveDb(db)
+        return json(res, 200, { data: db.cases[idx], mode: 'edited' }, req)
+      }
+
+      // Current next already passed (or none) → advance: old becomes last, new becomes next
+      if (currentNext && currentNext < today && nextDate === currentNext) {
+        return json(
+          res,
+          400,
+          { error: 'চলে যাওয়া তারিখ এডিট করা যায় না। নতুন পরবর্তী তারিখ দিন।' },
+          req,
+        )
+      }
+      const historical = (db.hearings || []).some(
+        (h) => h.caseId === existing.id && hearingDayKey(h.hearingDate) === nextDate,
+      )
+      if (historical) {
+        return json(
+          res,
+          409,
+          {
+            error: 'এটি আগে এন্ট্রি হয়েছে।',
+            code: 'HEARING_ALREADY_ENTERED',
+            data: existing,
+          },
+          req,
+        )
+      }
       db.cases[idx] = {
         ...existing,
-        lastHearingDate: existing.nextHearingDate,
-        nextHearingDate: String(body.nextHearingDate).slice(0, 10),
-        nextHearingPurpose: String(body.nextHearingPurpose),
+        lastHearingDate: currentNext || existing.lastHearingDate || '',
+        nextHearingDate: nextDate,
+        nextHearingPurpose: purpose,
         status: 'Hearing Scheduled',
-        importantNotes: body.notes
-          ? `${body.notes}${existing.importantNotes ? ` | ${existing.importantNotes}` : ''}`
-          : existing.importantNotes,
+        importantNotes: notesValue,
       }
       db.hearings.push({
         id: uid('hr'),
         caseId: existing.id,
         caseNumber: existing.caseNumber,
         caseTitle: existing.caseTitle,
-        hearingDate: String(body.nextHearingDate).slice(0, 10),
+        hearingDate: nextDate,
         hearingTime: body.hearingTime || '10:30',
         court: existing.courtName,
-        hearingType: String(body.nextHearingPurpose),
+        hearingType: purpose,
         notes: body.notes || '',
         responsibleStaffId: existing.assignedStaffIds?.[0],
         lawyerId: existing.ownerLawyerId,
       })
       saveDb(db)
-      return json(res, 200, { data: db.cases[idx] }, req)
+      return json(res, 200, { data: db.cases[idx], mode: 'created' }, req)
+    }
+
+    // Lawyer-only: backfill past hearing dates between filing and next (ongoing old cases)
+    const pastHearingMatch = path.match(/^\/api\/cases\/([^/]+)\/past-hearings$/)
+    if (method === 'POST' && pastHearingMatch) {
+      if (!auth) return json(res, 401, { error: 'Unauthorized' }, req)
+      if (auth.role !== 'LAWYER') {
+        return json(res, 403, { error: 'শুধু উকিল পুরাতন শুনানির তারিখ এন্ট্রি করতে পারবেন।' }, req)
+      }
+      const idx = db.cases.findIndex((x) => x.id === pastHearingMatch[1])
+      if (idx < 0) return json(res, 404, { error: 'Case not found' }, req)
+      const existing = db.cases[idx]
+      if (!lawyerCanAccessCase(existing, auth.id)) {
+        return json(res, 403, { error: 'Forbidden' }, req)
+      }
+      const body = await readBody(req)
+      if (!body.hearingDate || !body.hearingType) {
+        return json(res, 400, { error: 'পুরাতন তারিখ এবং সেদিন কী হয়েছিল — দুটোই আবশ্যক।' }, req)
+      }
+      const pastDate = String(body.hearingDate).slice(0, 10)
+      const purpose = String(body.hearingType).trim()
+      const day = new Date(pastDate + 'T00:00:00')
+      if (Number.isNaN(day.getTime())) {
+        return json(res, 400, { error: 'তারিখ সঠিক নয়।' }, req)
+      }
+      if (day.getDay() === 5 || day.getDay() === 6) {
+        return json(res, 400, { error: 'শুক্রবার/শনিবার আদালত বন্ধ।' }, req)
+      }
+      const today = toDateKey(new Date())
+      const filing = hearingDayKey(existing.filingDate)
+      const currentNext = hearingDayKey(existing.nextHearingDate)
+      if (filing && pastDate < filing) {
+        return json(res, 400, { error: 'দাখিলের তারিখের আগের শুনানি এন্ট্রি করা যায় না।' }, req)
+      }
+      if (pastDate > today) {
+        return json(res, 400, { error: 'পুরাতন এন্ট্রিতে ভবিষ্যতের তারিখ দেওয়া যায় না। পরবর্তী তারিখ আলাদা ফিল্ডে দিন।' }, req)
+      }
+      if (currentNext && pastDate >= currentNext) {
+        return json(
+          res,
+          400,
+          { error: 'পুরাতন তারিখ পরবর্তী শুনানির আগের হতে হবে। পরবর্তী তারিখ আলাদাভাবে এন্ট্রি/এডিট করুন।' },
+          req,
+        )
+      }
+      const already = (db.hearings || []).some(
+        (h) => h.caseId === existing.id && hearingDayKey(h.hearingDate) === pastDate,
+      )
+      if (already || (currentNext && currentNext === pastDate)) {
+        return json(
+          res,
+          409,
+          { error: 'এটি আগে এন্ট্রি হয়েছে।', code: 'HEARING_ALREADY_ENTERED' },
+          req,
+        )
+      }
+      const created = {
+        id: uid('hr'),
+        caseId: existing.id,
+        caseNumber: existing.caseNumber,
+        caseTitle: existing.caseTitle,
+        hearingDate: pastDate,
+        hearingTime: body.hearingTime || '10:30',
+        court: existing.courtName,
+        hearingType: purpose,
+        notes: body.notes || '',
+        responsibleStaffId: existing.assignedStaffIds?.[0],
+        lawyerId: existing.ownerLawyerId || auth.id,
+      }
+      db.hearings.push(created)
+      const pastKeys = (db.hearings || [])
+        .filter((h) => h.caseId === existing.id)
+        .map((h) => hearingDayKey(h.hearingDate))
+        .filter((d) => d && (!currentNext || d < currentNext) && d <= today)
+        .sort()
+      const lastPast = pastKeys[pastKeys.length - 1] || ''
+      db.cases[idx] = {
+        ...existing,
+        lastHearingDate: lastPast || existing.lastHearingDate || '',
+      }
+      saveDb(db)
+      return json(res, 201, { data: created, case: db.cases[idx] }, req)
     }
 
     if (method === 'GET' && path === '/api/staff') {

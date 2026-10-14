@@ -8,9 +8,11 @@ type ApiOptions = {
 
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  code?: string
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -29,7 +31,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
 
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new ApiError(data.error || 'Request failed', res.status)
+    throw new ApiError(data.error || 'Request failed', res.status, data.code)
   }
   return data as T
 }

@@ -115,12 +115,20 @@ export function DayCasesScreen({ navigation }: Props) {
 
   const submitEntry = async (caseId: string) => {
     setFormError('')
-    if (!entryDate.trim() || !entryPurpose.trim()) {
+    const nextDate = entryDate.trim().slice(0, 10)
+    if (!nextDate || !entryPurpose.trim()) {
       setFormError(t('needDateAndPurpose'))
       return
     }
+    const current = list.find((c) => c.id === caseId)
+    const currentNext = String(current?.nextHearingDate || '').slice(0, 10)
+    const currentPurpose = String(current?.nextHearingPurpose || '').trim()
+    if (currentNext && currentNext === nextDate && currentPurpose === entryPurpose.trim()) {
+      setFormError(t('hearingAlreadyEntered'))
+      return
+    }
     try {
-      if (isCourtHoliday(parseDateKey(entryDate))) {
+      if (isCourtHoliday(parseDateKey(nextDate))) {
         setFormError(t('courtHolidayError'))
         return
       }
@@ -128,12 +136,13 @@ export function DayCasesScreen({ navigation }: Props) {
       setFormError(t('needDateAndPurpose'))
       return
     }
+    if (savingId) return
     setSavingId(caseId)
     try {
       await api(`/cases/${caseId}/next-hearing`, {
         method: 'PATCH',
         body: {
-          nextHearingDate: entryDate.trim(),
+          nextHearingDate: nextDate,
           nextHearingPurpose: entryPurpose.trim(),
           notes: entryNotes.trim() || undefined,
         },
@@ -141,7 +150,11 @@ export function DayCasesScreen({ navigation }: Props) {
       setExpandedId(null)
       await load()
     } catch (e) {
-      setFormError(e instanceof ApiError ? e.message : t('error'))
+      if (e instanceof ApiError && e.code === 'HEARING_ALREADY_ENTERED') {
+        setFormError(t('hearingAlreadyEntered'))
+      } else {
+        setFormError(e instanceof ApiError ? e.message : t('error'))
+      }
     } finally {
       setSavingId(null)
     }
